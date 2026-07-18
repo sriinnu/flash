@@ -15,6 +15,8 @@ struct FlashApp: App {
     }
 }
 
+/// No SwiftUI window ever appears (`LSUIElement` in Info.plist), so the menu
+/// bar item built here is the entire visible surface of the app.
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
@@ -26,6 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // Singleton: if another Flash is already running, defer to it and die.
+        // `make install` also pkills any prior instance before copying the
+        // new build in, so this mainly guards against double-clicking the
+        // .app while a launch-at-login instance is already up.
         if let bundleID = Bundle.main.bundleIdentifier {
             let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
                 .filter { $0 != NSRunningApplication.current }
@@ -69,7 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
         Log.write("[app] status item installed in menu bar")
 
-        // Icon tint + menu text follow watcher + flash state.
+        // Icon tint + menu text follow watcher + flash state. `receive(on:
+        // RunLoop.main)` is what makes the `updateStatus` call below safe —
+        // it guarantees this sink only ever fires already on the main run
+        // loop, which is what lets it call a @MainActor method synchronously.
         WatchManager.shared.$isRunning
             .combineLatest(FlashController.shared.$iconState)
             .receive(on: RunLoop.main)

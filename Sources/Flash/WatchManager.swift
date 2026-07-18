@@ -26,12 +26,14 @@ final class WatchManager: ObservableObject {
             Task { @MainActor in FlashController.shared.resolve("fido", success: success) }
         }
         sniffer.start()
+        SignTrigger.shared.start()
     }
 
     func stop() {
         guard isRunning else { return }
         isRunning = false
         FidoSniffer.shared.stop()
+        SignTrigger.shared.stop()
         Task { @MainActor in FlashController.shared.resolveAll() }
     }
 
