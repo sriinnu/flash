@@ -1,0 +1,173 @@
+import SwiftUI
+import AppKit
+import ServiceManagement
+import Combine
+
+@main
+struct FlashApp: App {
+
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    var body: some Scene {
+        Settings {
+            SettingsView()
+        }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+
+    private var statusItem: NSStatusItem!
+    private let statusMenuItem = NSMenuItem()
+    private let watchToggleItem = NSMenuItem()
+    private var cancellables = Set<AnyCancellable>()
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+
+        // Singleton: if another Flash is already running, defer to it and die.
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                .filter { $0 != NSRunningApplication.current }
+            if !others.isEmpty {
+                Log.write("[app] another instance already running — exiting")
+                NSApp.terminate(nil)
+                return
+            }
+        }
+
+        // Menu bar status item.
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.image = NSImage(
+            systemSymbolName: "bolt.shield.fill",
+            accessibilityDescription: "Flash"
+        )
+
+        let menu = NSMenu()
+        statusMenuItem.title = "Watching for auth prompts…"
+        statusMenuItem.isEnabled = false
+        menu.addItem(statusMenuItem)
+        menu.addItem(.separator())
+
+        watchToggleItem.action = #selector(toggleWatching)
+        watchToggleItem.target = self
+        menu.addItem(watchToggleItem)
+
+        let test = NSMenuItem(title: "Test Flash", action: #selector(testFlash), keyEquivalent: "")
+        test.target = self
+        menu.addItem(test)
+
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: "Quit Flash", action: #selector(quitApp), keyEquivalent: "q")
+        quit.target = self
+        menu.addItem(quit)
+
+        statusItem.menu = menu
+        Log.write("[app] status item installed in menu bar")
+
+        // Icon tint + menu text follow watcher + flash state.
+        WatchManager.shared.$isRunning
+            .combineLatest(FlashController.shared.$iconState)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] running, state in
+                self?.updateStatus(running: running, state: state)
+            }
+            .store(in: &cancellables)
+
+        // Start the engines if the user left them on.
+        if WatchManager.shared.enabledPreference {
+            WatchManager.shared.start()
+        }
+    }
+
+    @MainActor
+    private func updateStatus(running: Bool, state: FlashController.IconState) {
+        watchToggleItem.title = running ? "Pause Watching" : "Resume Watching"
+
+        guard running else {
+            statusMenuItem.title = "Watching paused"
+            statusItem.button?.contentTintColor = nil
+            return
+        }
+        switch state {
+        case .idle:
+            statusMenuItem.title = "Watching for auth prompts…"
+            statusItem.button?.contentTintColor = nil
+        case .alerting:
+            statusMenuItem.title = "⚡ Your key wants a touch!"
+            statusItem.button?.contentTintColor = .systemOrange
+        case .success:
+            statusMenuItem.title = "✅ Touch confirmed"
+            statusItem.button?.contentTintColor = .systemGreen
+        }
+    }
+
+    @objc private func toggleWatching() {
+        WatchManager.shared.toggle()
+    }
+
+    @objc private func testFlash() {
+        Task { @MainActor in FlashController.shared.testPulse() }
+    }
+
+    @objc private func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func quitApp() {
+        NSApp.terminate(nil)
+    }
+}
+
+struct SettingsView: View {
+
+    @AppStorage("flashColor") private var flashColor: FlashColor = .amber
+    @AppStorage("reminderInterval") private var reminderInterval: ReminderInterval = .off
+    @AppStorage("flashCount") private var flashCount: Int = 4
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+
+    var body: some View {
+        Form {
+            Picker("Flash color", selection: $flashColor) {
+                ForEach(FlashColor.allCases) { preset in
+                    HStack {
+                        Circle()
+                            .fill(Color(preset.color))
+                            .frame(width: 10, height: 10)
+                        Text(preset.label)
+                    }
+                    .tag(preset)
+                }
+            }
+
+            Picker("Remind again if ignored", selection: $reminderInterval) {
+                ForEach(ReminderInterval.allCases) { interval in
+                    Text(interval.label).tag(interval)
+                }
+            }
+
+            Stepper("Flashes per alert: \(flashCount)", value: $flashCount, in: 2...6)
+
+            Toggle("Launch at login", isOn: $launchAtLogin)
+                .onChange(of: launchAtLogin) { _, on in
+                    do {
+                        if on {
+                            try SMAppService.mainApp.register()
+                        } else {
+                            try SMAppService.mainApp.unregister()
+                        }
+                    } catch {
+                        launchAtLogin = SMAppService.mainApp.status == .enabled
+                    }
+                }
+        }
+        .formStyle(.grouped)
+        .frame(width: 340)
+        .padding()
+    }
+}
