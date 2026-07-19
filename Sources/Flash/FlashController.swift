@@ -19,6 +19,15 @@ final class FlashController: ObservableObject {
     private var overlayWindows: [BorderWindow] = []
     private var reminderTask: Task<Void, Never>?
     private var successResetTask: Task<Void, Never>?
+    private var watchdogTasks: [String: Task<Void, Never>] = [:]
+
+    /// Longest we'll trust a trigger to resolve itself. If an engine dies
+    /// mid-prompt (killed process, crashed helper, unplugged key) without
+    /// ever calling `resolve`, the id would otherwise stay in `activeTriggers`
+    /// forever — silently swallowing every future `trigger(id)` call, since
+    /// the guard below treats "already active" as "already alerting". This
+    /// caps that blast radius regardless of why resolve never came.
+    private let watchdogTimeout: Duration = .seconds(45)
 
     /// Begin an alert for a trigger. Ignored if that trigger is already active.
     func trigger(_ id: String) {
@@ -28,12 +37,15 @@ final class FlashController: ObservableObject {
         iconState = .alerting
         pulseAll()
         scheduleReminder()
+        scheduleWatchdog(id)
     }
 
     /// The prompt ended. `success` = answered (key touched, password entered);
     /// `false` = cancelled or vanished without an answer.
     func resolve(_ id: String, success: Bool) {
         guard activeTriggers.remove(id) != nil else { return }
+        watchdogTasks[id]?.cancel()
+        watchdogTasks[id] = nil
 
         if success {
             iconState = .success
@@ -59,6 +71,8 @@ final class FlashController: ObservableObject {
         reminderTask?.cancel()
         reminderTask = nil
         successResetTask?.cancel()
+        watchdogTasks.values.forEach { $0.cancel() }
+        watchdogTasks.removeAll()
         iconState = .idle
     }
 
@@ -70,14 +84,27 @@ final class FlashController: ObservableObject {
     private func pulseAll() {
         let preset = FlashSettings.shared.flashColor
         let count = FlashSettings.shared.flashCount
+        // Resolved once per pulse, not per screen — see BorderWindow's init.
+        let gradient = preset == .random ? FlashColor.randomVividGradient() : preset.gradient
+        let glow = gradient[0]
         for screen in NSScreen.screens {
-            let window = BorderWindow(screen: screen, preset: preset)
+            let window = BorderWindow(screen: screen, gradient: gradient, glowColor: glow)
             overlayWindows.append(window)
             window.pulse(flashes: count) { [weak self] in
                 Task { @MainActor in
                     self?.overlayWindows.removeAll { $0 === window }
                 }
             }
+        }
+    }
+
+    private func scheduleWatchdog(_ id: String) {
+        watchdogTasks[id]?.cancel()
+        watchdogTasks[id] = Task { [weak self] in
+            try? await Task.sleep(for: self?.watchdogTimeout ?? .seconds(45))
+            guard !Task.isCancelled, let self, self.activeTriggers.contains(id) else { return }
+            Log.write("[controller] '\(id)' never resolved within \(self.watchdogTimeout) — clearing so it can rearm")
+            self.resolve(id, success: false)
         }
     }
 

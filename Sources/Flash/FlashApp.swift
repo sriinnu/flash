@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusMenuItem = NSMenuItem()
     private let watchToggleItem = NSMenuItem()
     private var cancellables = Set<AnyCancellable>()
+    private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -72,7 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quit)
 
         statusItem.menu = menu
-        Log.write("[app] status item installed in menu bar")
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        Log.write("[app] status item installed in menu bar (v\(version), build \(build))")
 
         // Icon tint + menu text follow watcher + flash state. `receive(on:
         // RunLoop.main)` is what makes the `updateStatus` call below safe —
@@ -123,8 +126,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        // Deliberately not using the private `showSettingsWindow:` selector
+        // SwiftUI's `Settings` scene relies on — it depends on the scene
+        // having registered on the responder chain, which .accessory apps
+        // (no Dock icon, never "activate" a window on launch) don't
+        // reliably reach. Owning the window ourselves always works.
+        if settingsWindow == nil {
+            // Explicit NSHostingView + a contentRect derived from its own
+            // fittingSize, set directly as contentView. The
+            // contentViewController route rendered blank — overriding
+            // styleMask right after that convenience initializer likely
+            // fought its own auto-sizing rather than adding to it.
+            let hostingView = NSHostingView(rootView: SettingsView())
+            let size = hostingView.fittingSize
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Flash Settings"
+            window.contentView = hostingView
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
+        }
         NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func quitApp() {
