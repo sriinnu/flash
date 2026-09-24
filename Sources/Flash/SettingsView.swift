@@ -277,10 +277,12 @@ private struct Row<Control: View>: View {
     }
 }
 
-private struct StyleTile: View {
+/// Also used, compact (icon only), in the menu-bar panel.
+struct StyleTile: View {
     let style: AlertStyle
     let selected: Bool
     let tint: AnyShapeStyle
+    var compact = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -289,13 +291,15 @@ private struct StyleTile: View {
                 .font(.system(size: 19, weight: .medium))
                 .frame(height: 24)
                 .foregroundStyle(selected ? tint : AnyShapeStyle(HierarchicalShapeStyle.secondary))
-            Text(style.shortLabel)
-                .font(.caption)
-                .lineLimit(1)
-                .foregroundStyle(selected ? .primary : .secondary)
+            if !compact {
+                Text(style.shortLabel)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(selected ? .primary : .secondary)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
+        .padding(.vertical, compact ? 7 : 10)
         .background(shape.fill(Color.primary.opacity(selected ? 0.08 : 0.03)))
         .overlay(
             shape.strokeBorder(
@@ -307,7 +311,7 @@ private struct StyleTile: View {
     }
 }
 
-private struct Swatch: View {
+struct Swatch: View {
     let preset: FlashColor
     let selected: Bool
 
@@ -347,7 +351,7 @@ private struct Swatch: View {
 }
 
 // UI-only metadata — kept out of Settings.swift so the model stays AppKit/SF-free.
-private extension AlertStyle {
+extension AlertStyle {
     var symbol: String {
         switch self {
         case .comet: return "arrow.triangle.merge"

@@ -62,12 +62,12 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
       in `AlertEffects.swift`, picker + Preview in Settings. Tune speeds/timings on real screens.
 - [ ] Reminder is Off by default → a missed comet never escalates. Consider a one-shot
       auto-escalation (~8s) when reminders are off.
-- [ ] Touch counter / stats in menu (today: N touches)
+- [x] Touch counter / stats in menu (today: N touches) — menu-bar panel
 - [ ] Subtle success sound (optional, off by default)
 - [ ] Per-trigger colors (gold = Titan, blue = password) — 5-line diff in pulseAll
 - [ ] Caps-lock LED blink as secondary channel (Twitter-hack homage, IOKit LED control)
 - [ ] Flash display picker (all displays vs prompt's display) — default stays "all"
-- [ ] Icon state for "paused" (dim shield?)
+- [x] Icon state for "paused" — dimmed shield (`appearsDisabled`)
 
 ## 📦 Distribution (when solid)
 

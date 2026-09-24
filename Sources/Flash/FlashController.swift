@@ -16,6 +16,16 @@ final class FlashController: ObservableObject {
     @Published private(set) var activeTriggers: Set<String> = []
     @Published private(set) var iconState: IconState = .idle
 
+    /// Confirmed touches since local midnight — shown in the menu-bar panel.
+    /// Persisted so a relaunch mid-day doesn't zero it.
+    @Published private(set) var touchesToday = 0
+    /// Last *real* alert (not Test Flash), in-memory only.
+    @Published private(set) var lastAlertAt: Date?
+
+    private init() {
+        refreshStats()
+    }
+
     /// Alert and celebration windows tracked apart so a touch can cut the
     /// alert short without also killing the ripple it's about to trigger.
     private var alertWindows: [OverlayWindow] = []
@@ -40,6 +50,7 @@ final class FlashController: ObservableObject {
     func trigger(_ id: String) {
         guard !activeTriggers.contains(id) else { return }
         activeTriggers.insert(id)
+        lastAlertAt = Date()
         successResetTask?.cancel()
         iconState = .alerting
         pulseAll()
@@ -55,6 +66,7 @@ final class FlashController: ObservableObject {
         watchdogTasks[id] = nil
 
         if success {
+            recordTouch()
             dismissAlerts()
             if FlashSettings.shared.successRipple { celebrateAll() }
             iconState = .success
@@ -96,6 +108,30 @@ final class FlashController: ObservableObject {
     func testSuccess() {
         dismissAlerts()
         celebrateAll()
+    }
+
+    // MARK: Stats
+
+    private static let statsDayKey = "statsDay"
+    private static let statsTouchesKey = "statsTouches"
+
+    /// Re-reads today's count, zeroing it if the stored day isn't today.
+    /// Called on launch and each time the panel opens, so an app left
+    /// running overnight doesn't show yesterday's number.
+    func refreshStats() {
+        let defaults = UserDefaults.standard
+        let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        if defaults.double(forKey: Self.statsDayKey) != today {
+            defaults.set(today, forKey: Self.statsDayKey)
+            defaults.set(0, forKey: Self.statsTouchesKey)
+        }
+        touchesToday = defaults.integer(forKey: Self.statsTouchesKey)
+    }
+
+    private func recordTouch() {
+        refreshStats()
+        touchesToday += 1
+        UserDefaults.standard.set(touchesToday, forKey: Self.statsTouchesKey)
     }
 
     private var reduceMotion: Bool {

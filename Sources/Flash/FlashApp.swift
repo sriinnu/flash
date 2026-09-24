@@ -20,8 +20,11 @@ struct FlashApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
-    private let statusMenuItem = NSMenuItem()
-    private let watchToggleItem = NSMenuItem()
+    /// Left-click: the rich panel. Right-click: `quickMenu`, a plain NSMenu
+    /// for muscle memory and for when a popover is the wrong tool.
+    private let popover = NSPopover()
+    private let quickMenu = NSMenu()
+    private let quickToggleItem = NSMenuItem()
     private var cancellables = Set<AnyCancellable>()
     private var settingsWindow: NSWindow?
 
@@ -50,41 +53,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Menu bar status item.
+        // Menu bar status item. No `statusItem.menu` — a set menu swallows
+        // the button's action, and the action is what opens the popover.
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(
-            systemSymbolName: "bolt.shield.fill",
-            accessibilityDescription: "Flash"
-        )
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "bolt.shield.fill", accessibilityDescription: "Flash")
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
 
-        let menu = NSMenu()
-        statusMenuItem.title = "Watching for auth prompts…"
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
-        menu.addItem(.separator())
+        let hosting = NSHostingController(rootView: MenuPanelView(
+            flash: FlashController.shared,
+            watch: WatchManager.shared,
+            openSettings: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.openSettings()
+            },
+            quit: { NSApp.terminate(nil) }
+        ))
+        // Popover follows the SwiftUI view's size as its content changes.
+        hosting.sizingOptions = .preferredContentSize
+        popover.contentViewController = hosting
+        popover.behavior = .transient
+        popover.animates = true
 
-        watchToggleItem.action = #selector(toggleWatching)
-        watchToggleItem.target = self
-        menu.addItem(watchToggleItem)
-
-        let test = NSMenuItem(title: "Test Flash", action: #selector(testFlash), keyEquivalent: "")
-        test.target = self
-        menu.addItem(test)
-
-        let testSuccess = NSMenuItem(title: "Test Success", action: #selector(testSuccess), keyEquivalent: "")
-        testSuccess.target = self
-        menu.addItem(testSuccess)
-
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Flash", action: #selector(quitApp), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-
-        statusItem.menu = menu
+        buildQuickMenu()
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         Log.write("[app] status item installed in menu bar (v\(version), build \(build))")
@@ -107,24 +101,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func buildQuickMenu() {
+        quickToggleItem.action = #selector(toggleWatching)
+        quickToggleItem.target = self
+        quickMenu.addItem(quickToggleItem)
+
+        let test = NSMenuItem(title: "Test Flash", action: #selector(testFlash), keyEquivalent: "")
+        test.target = self
+        quickMenu.addItem(test)
+
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        quickMenu.addItem(settings)
+
+        quickMenu.addItem(.separator())
+        let quit = NSMenuItem(title: "Quit Flash", action: #selector(quitApp), keyEquivalent: "q")
+        quit.target = self
+        quickMenu.addItem(quit)
+    }
+
+    @MainActor
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            // Attach, pop synchronously, detach — so the next left-click
+            // still reaches this action instead of the menu.
+            popover.performClose(nil)
+            statusItem.menu = quickMenu
+            sender.performClick(nil)
+            statusItem.menu = nil
+            return
+        }
+
+        if popover.isShown {
+            popover.performClose(sender)
+            return
+        }
+        FlashController.shared.refreshStats()
+        // Accessory apps aren't active by default; without this the popover
+        // can't become key, so ⌘, / ⌘Q and click-outside-to-close misbehave.
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
     @MainActor
     private func updateStatus(running: Bool, state: FlashController.IconState) {
-        watchToggleItem.title = running ? "Pause Watching" : "Resume Watching"
+        quickToggleItem.title = running ? "Pause Watching" : "Resume Watching"
+        // Paused reads as a dimmed shield — visible at a glance, no popover needed.
+        statusItem.button?.appearsDisabled = !running
 
         guard running else {
-            statusMenuItem.title = "Watching paused"
+            statusItem.button?.toolTip = "Flash — paused"
             statusItem.button?.contentTintColor = nil
             return
         }
         switch state {
         case .idle:
-            statusMenuItem.title = "Watching for auth prompts…"
+            statusItem.button?.toolTip = "Flash — watching"
             statusItem.button?.contentTintColor = nil
         case .alerting:
-            statusMenuItem.title = "⚡ Your key wants a touch!"
+            statusItem.button?.toolTip = "Flash — your key wants a touch"
             statusItem.button?.contentTintColor = .systemOrange
         case .success:
-            statusMenuItem.title = "✅ Touch confirmed"
+            statusItem.button?.toolTip = "Flash — touch confirmed"
             statusItem.button?.contentTintColor = .systemGreen
         }
     }
@@ -135,10 +174,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func testFlash() {
         Task { @MainActor in FlashController.shared.testPulse() }
-    }
-
-    @objc private func testSuccess() {
-        Task { @MainActor in FlashController.shared.testSuccess() }
     }
 
     @objc private func openSettings() {
