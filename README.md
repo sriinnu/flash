@@ -19,7 +19,9 @@ The Titan's touch LED is easy to miss — a small blink on a USB dongle is no ma
 - **FIDO/Titan sniffer** — watches CTAPHID traffic for `KEEPALIVE/UP_NEEDED` (touch requested).
 - **SSH-signing watcher** — hooks the `git-ssh-keygen-titan` wrapper directly via `SIGUSR1`/`SIGUSR2`, since libfido2 opens the key with `kIOHIDOptionsTypeSeizeDevice` during a real signature, which evicts any app trying to sniff that traffic non-exclusively.
 - Menu-bar status item only — no dock icon, no windows. Icon tints amber while something's waiting, green for a few seconds after a confirmed touch.
-- Settings: flash color, flash count, reminder re-pulse if you miss it, launch at login.
+- **Comet chase** (default alert) — two comets race from top-centre down both edges and collide at bottom-centre, pointing your eyes toward the key. If a reminder fires, it escalates to the **classic** full-border flash. Reduce Motion always gets classic.
+- **Success ripple** — green rings collapse inward when the touch lands.
+- Settings: alert style, flash color, classic flash count, reminder re-pulse if you miss it, success ripple, launch at login.
 
 GUI password-dialog and terminal-prompt watchers are next — see `TODO.md`.
 

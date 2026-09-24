@@ -63,6 +63,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         test.target = self
         menu.addItem(test)
 
+        let testSuccess = NSMenuItem(title: "Test Success", action: #selector(testSuccess), keyEquivalent: "")
+        testSuccess.target = self
+        menu.addItem(testSuccess)
+
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -125,6 +129,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in FlashController.shared.testPulse() }
     }
 
+    @objc private func testSuccess() {
+        Task { @MainActor in FlashController.shared.testSuccess() }
+    }
+
     @objc private func openSettings() {
         // Deliberately not using the private `showSettingsWindow:` selector
         // SwiftUI's `Settings` scene relies on — it depends on the scene
@@ -163,12 +171,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct SettingsView: View {
 
     @AppStorage("flashColor") private var flashColor: FlashColor = .amber
+    @AppStorage("alertStyle") private var alertStyle: AlertStyle = .comet
+    @AppStorage("successRipple") private var successRipple: Bool = true
     @AppStorage("reminderInterval") private var reminderInterval: ReminderInterval = .off
     @AppStorage("flashCount") private var flashCount: Int = 4
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         Form {
+            Picker("Alert style", selection: $alertStyle) {
+                ForEach(AlertStyle.allCases) { style in
+                    Text(style.label).tag(style)
+                }
+            }
+
             Picker("Flash color", selection: $flashColor) {
                 ForEach(FlashColor.allCases) { preset in
                     HStack {
@@ -187,7 +203,11 @@ struct SettingsView: View {
                 }
             }
 
-            Stepper("Flashes per alert: \(flashCount)", value: $flashCount, in: 2...6)
+            // Comet runs a fixed two passes; this count drives the classic
+            // flash — which is also what reminders escalate to.
+            Stepper("Classic flashes: \(flashCount)", value: $flashCount, in: 2...6)
+
+            Toggle("Success ripple on touch", isOn: $successRipple)
 
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, on in

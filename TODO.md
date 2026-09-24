@@ -53,7 +53,13 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
 
 ## ✨ Polish backlog (post-MVP, user mentioned interest)
 
-- [ ] Success ripple/animation on touch (hang off `resolve(success: true)`)
+- [x] Success ripple/animation on touch — green rings collapse inward; toggle in Settings,
+      "Test Success" in menu. **Needs eyes on real hardware.**
+- [ ] **Comet chase alert** (built, untested on a Mac) — two comets race top-centre →
+      bottom-centre, flare + shockwave on meet. Default alert style; reminders escalate to
+      classic; Reduce Motion forces classic. Tune: tail lengths/alphas, travel 0.95s, 2 passes.
+- [ ] Reminder is Off by default → a missed comet never escalates. Consider a one-shot
+      auto-escalation (~8s) when reminders are off.
 - [ ] Touch counter / stats in menu (today: N touches)
 - [ ] Subtle success sound (optional, off by default)
 - [ ] Per-trigger colors (gold = Titan, blue = password) — 5-line diff in pulseAll

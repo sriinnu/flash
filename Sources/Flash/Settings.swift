@@ -57,6 +57,21 @@ enum FlashColor: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the *first* alert for a prompt looks. Reminders always escalate to
+/// `.classic` — subtle first, loud second — so a missed comet still ends in
+/// the full-border shout if a reminder interval is set.
+enum AlertStyle: String, CaseIterable, Identifiable {
+    case comet, classic
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .comet: return "Comet chase"
+        case .classic: return "Classic flash"
+        }
+    }
+}
+
 enum ReminderInterval: Int, CaseIterable, Identifiable {
     case off = 0
     case fifteen = 15
@@ -78,6 +93,15 @@ final class FlashSettings {
 
     var reminderInterval: ReminderInterval {
         ReminderInterval(rawValue: defaults.integer(forKey: "reminderInterval")) ?? .off
+    }
+
+    var alertStyle: AlertStyle {
+        AlertStyle(rawValue: defaults.string(forKey: "alertStyle") ?? "") ?? .comet
+    }
+
+    /// Defaults on — `integer(forKey:)` can't tell "unset" from "false".
+    var successRipple: Bool {
+        defaults.object(forKey: "successRipple") as? Bool ?? true
     }
 
     var flashCount: Int {
