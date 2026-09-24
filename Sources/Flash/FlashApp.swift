@@ -28,6 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        // Sriinnu: the app was quitting right after Test Flash with nothing
+        // in the log. If an Obj-C exception (CoreAnimation / AppKit) is what
+        // kills it, this at least leaves its name, reason and stack behind.
+        NSSetUncaughtExceptionHandler { exception in
+            Log.write("[crash] uncaught \(exception.name.rawValue): \(exception.reason ?? "no reason")")
+            Log.write("[crash] stack:\n" + exception.callStackSymbols.joined(separator: "\n"))
+        }
+
         // Singleton: if another Flash is already running, defer to it and die.
         // `make install` also pkills any prior instance before copying the
         // new build in, so this mainly guards against double-clicking the
@@ -170,6 +178,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct SettingsView: View {
 
+    // Literal URL — can't fail to parse, so the force-unwrap is safe.
+    static let repoURL = URL(string: "https://github.com/sriinnu/flash")!
+
+    /// "0.3 (20260924…)" — marketing version plus the build stamp `make bundle`
+    /// writes, so a screenshot of Settings says exactly which build it was.
+    static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "dev"
+        let build = info?["CFBundleVersion"] as? String
+        return build.map { "\(version) (\($0))" } ?? version
+    }
+
     @AppStorage("flashColor") private var flashColor: FlashColor = .amber
     @AppStorage("alertStyle") private var alertStyle: AlertStyle = .comet
     @AppStorage("successRipple") private var successRipple: Bool = true
@@ -233,6 +253,14 @@ struct SettingsView: View {
                         launchAtLogin = SMAppService.mainApp.status == .enabled
                     }
                 }
+
+            Section("About") {
+                LabeledContent("Version", value: Self.versionString)
+                LabeledContent("Made by", value: "Sriinnu")
+                LabeledContent("Source") {
+                    Link("github.com/sriinnu/flash", destination: Self.repoURL)
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 340)

@@ -134,9 +134,14 @@ final class FlashController: ObservableObject {
                 }
             }
             alertWindows.append(window)
+            let name = screen.localizedName
             window.play { [weak self] in
+                // Paired with the "alert —" line above: if the app dies and
+                // this never shows, it died mid-animation, not in cleanup.
+                Log.write("[overlay] \(style.rawValue) finished on \(name)")
                 Task { @MainActor in
                     self?.alertWindows.removeAll { $0 === window }
+                    Log.write("[overlay] window released, \(self?.alertWindows.count ?? -1) still up")
                 }
             }
         }
