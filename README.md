@@ -5,63 +5,54 @@
 <h1 align="center">Flash</h1>
 
 <p align="center">
-  A menu-bar alerter for the moment your Titan key wants a touch and you're looking somewhere else.
+  Your security key wants a touch and you're looking somewhere else.<br>
+  Flash lights up the edges of every display so you can't miss it.
 </p>
 
 ---
 
-## Why
+A security key's touch LED is tiny. Flash sits in the macOS menu bar, notices when a FIDO key (Titan, YubiKey, …) is waiting on you, and plays a short, full-screen edge animation, then gets out of the way. When the touch lands, a green ripple confirms it.
 
-The Titan's touch LED is easy to miss — a small blink on a USB dongle is no match for a monitor you're not looking at. Every time a `git commit`/`git push` needs a signature, or a password dialog or terminal prompt is waiting on you, Flash pulses the edges of every display a few times and stops. Full-screen, impossible to miss from across the room, gone as soon as it's made its point.
-
-## What it does
-
-- **FIDO/Titan sniffer** — watches CTAPHID traffic for `KEEPALIVE/UP_NEEDED` (touch requested).
-- **SSH-signing watcher** — hooks the `git-ssh-keygen-titan` wrapper directly via `SIGUSR1`/`SIGUSR2`, since libfido2 opens the key with `kIOHIDOptionsTypeSeizeDevice` during a real signature, which evicts any app trying to sniff that traffic non-exclusively.
-- Menu-bar status item only — no dock icon, no windows. Icon tints amber while something's waiting, green for a few seconds after a confirmed touch.
-- **Alert styles** — pick one in Settings (with a Preview button):
-  - **Comet chase** (default) — two comets race from top-centre down both edges and collide at bottom-centre, pointing your eyes toward the key.
-  - **Marquee** — two-tone marquee lights chase round the whole border.
-  - **Target lock** — corner brackets slam in, lock, blink, then trace the full border and flare.
-  - **Heartbeat** — the border thumps inward, lub-dub, three beats.
-  - **Classic flash** — the full border pulses on and off.
-
-  If a reminder fires, it always escalates to **classic**. Reduce Motion always gets classic.
-- **Success ripple** — green rings collapse inward when the touch lands.
-- Settings: alert style, flash color, classic flash count, reminder re-pulse if you miss it, success ripple, launch at login.
-
-GUI password-dialog and terminal-prompt watchers are next — see `TODO.md`.
+- **Catches** WebAuthn / passkey prompts in any browser, and SSH commit signing with a security key.
+- **Five alert styles**: Comet chase, Marquee, Target lock, Heartbeat, Classic flash. Pick one and choose its colours in Settings.
+- **Stays quiet**: menu-bar only, no Dock icon. If you ignore an alert, the reminder switches to the loud Classic flash. It respects Reduce Motion.
 
 ## Install
 
-Grab the latest **Flash-x.y.dmg** from [Releases](https://github.com/sriinnu/flash/releases), open it, drag **Flash** into **Applications**, launch it — it lives in the menu bar. Universal build (Apple Silicon + Intel), macOS 14+.
+1. Download **Flash-x.y.dmg** from [Releases](https://github.com/sriinnu/flash/releases).
+2. Open it and drag **Flash** into **Applications**.
+3. Launch it. A bolt-shield icon appears in the menu bar.
 
-If a release isn't notarized, macOS blocks the first launch: **System Settings → Privacy & Security → Open Anyway**.
+macOS 14+, Apple Silicon and Intel. If macOS blocks the first launch, go to **System Settings → Privacy & Security → Open Anyway**.
 
-## Release
+Browser and passkey prompts work straight away. Git needs one more step.
 
-Bump `CFBundleShortVersionString` in `Resources/Info.plist`, commit, then:
+## Set up git (SSH signing with a security key)
 
-```sh
-git tag v0.3 && git push origin v0.3   # GitHub Actions builds, signs, notarizes, publishes
-make release                           # or locally: artifacts in dist/
-make publish                           # or locally + create the GitHub release (gh CLI)
-```
-
-Signing/notarization secrets are documented at the top of `.github/workflows/release.yml` and `tools/release.sh`.
-
-## Build & run
+While git is signing, the key is locked to the signing process, so Flash can't see it. Flash ships a small wrapper that tells Flash itself. Point git at it:
 
 ```sh
-make install   # → /Applications/Flash.app
-make run       # run from a terminal, for watching sniffer logs live
-make icon      # regenerate the app icon from tools/render_icon.swift
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519_sk.pub   # your sk- key
+git config --global commit.gpgsign true
+git config --global gpg.ssh.program \
+  /Applications/Flash.app/Contents/Resources/git-ssh-keygen-flash
 ```
 
-Logs: `~/Library/Logs/Flash.log`
+Now `git commit` alerts you when the key needs a touch, and ripples green when it's signed.
 
-## Requirements
+- **Only security keys (`sk-…`) trigger an alert.** Signing with an ordinary key passes through untouched, and so does anything other than signing.
+- **If git says the key type isn't supported**, Apple's bundled `ssh-keygen` may lack FIDO support. Install `brew install openssh` and add `export FLASH_SSH_KEYGEN=/opt/homebrew/bin/ssh-keygen` to your shell profile.
+- **Don't have a security-key SSH key yet?** Create one with `ssh-keygen -t ed25519-sk`.
 
-- macOS 14+
-- A FIDO2 security key (built and verified against a Titan Security Key v2)
-- Swift 5.9 toolchain, no external dependencies
+## Use
+
+- **Click the icon** for a panel with status, today's touch count, the style switcher, test buttons and a pause switch. **Right-click** gives a plain menu.
+- **Settings** (⌘,) holds alert style, colour, reminder interval, success ripple and launch at login.
+- **Logs** go to `~/Library/Logs/Flash.log`.
+
+## Develop
+
+Building, architecture, adding alert styles and cutting releases are covered in **[DEVELOPMENT.md](DEVELOPMENT.md)**.
+
+<p align="center"><sub>Made by Sriinnu</sub></p>

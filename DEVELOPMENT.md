@@ -1,0 +1,104 @@
+# Flash: developer guide
+
+This is a menu-bar-only macOS app written in Swift, using AppKit and SwiftUI. It has **no dependencies**. Everything builds with SwiftPM plus a small Makefile.
+
+## Quick start
+
+```sh
+make run       # build, bundle, run in the foreground; logs stream to the terminal
+make install   # build + replace /Applications/Flash.app (kills the running copy)
+make icon      # regenerate Resources/Flash.icns from tools/render_icon.swift
+make release   # universal, signed dmg + zip in dist/ (see Releasing)
+make clean
+```
+
+Requirements: macOS 14+ and Xcode 15+ (Swift 5.9). A FIDO key is needed for real tests. Test Flash and Preview work without one.
+
+Logs go to `~/Library/Logs/Flash.log`. They're always written, including when the app is launched from Finder.
+
+## Architecture
+
+```
+            ┌──────────────── detection ────────────────┐
+ FIDO key ──► FidoSniffer (IOHID, CTAPHID keepalive)    │
+ git sign ──► git-ssh-keygen-flash ─SIGUSR1/2─► SignTrigger
+            └───────────────────┬───────────────────────┘
+                                │ trigger(id) / resolve(id, success)
+                                ▼
+                  FlashController  (@MainActor, one per app)
+                   • active trigger set + watchdog (45s)
+                   • reminder → escalates to Classic
+                   • icon state, touch stats
+                                │ one OverlayWindow per NSScreen
+                                ▼
+       OverlayWindow ─hosts─► OverlayView subclass (one effect, single use)
+                              Classic · Comet · Marquee · TargetLock
+                              Heartbeat · SuccessRipple
+                                ▲
+                  BorderGeometry: one rail every effect draws on
+```
+
+| File | What lives there |
+|---|---|
+| `FlashApp.swift` | App entry, `AppDelegate`: status item, popover, right-click menu, singleton guard, crash breadcrumbs |
+| `FlashController.swift` | Trigger state, watchdog, reminders/escalation, touch stats, spawns overlay windows |
+| `FlashOverlay.swift` | `OverlayWindow`, `OverlayView` base + shared helpers, `BorderGeometry`, Classic, Comet, SuccessRipple |
+| `AlertEffects.swift` | Marquee, Target lock, Heartbeat |
+| `MenuPanelView.swift` | Left-click popover |
+| `SettingsView.swift` | Settings window, `StyleTile`, `Swatch` |
+| `Settings.swift` | `FlashColor`, `AlertStyle`, `ReminderInterval`, `FlashSettings` (UserDefaults) |
+| `WatchManager.swift` | Starts and stops every detection engine as one; pause state |
+| `FidoSniffer.swift` | IOHID manager on usage page `0xF1D0`, CTAPHID parser |
+| `SignTrigger.swift` | `SIGUSR1` = touch needed, `SIGUSR2` = done (exit code in `$TMPDIR/flash-signing-result`) |
+| `Log.swift` | stdout + `~/Library/Logs/Flash.log` |
+| `tools/git-ssh-keygen-flash` | `gpg.ssh.program` wrapper, shipped in `Contents/Resources` |
+| `tools/release.sh` | Release pipeline (build → sign → notarize → dmg/zip → GitHub) |
+
+### Detection notes
+
+- **FidoSniffer** opens keys non-exclusively and watches for `KEEPALIVE` with status `UP_NEEDED`. A response packet means the key was touched; `ERROR` means it was cancelled. Some HID stacks prepend a report-ID byte, so the parser checks offset 0 and then offset 1.
+- **SSH signing:** libfido2 *seizes* the device (`kIOHIDOptionsTypeSeizeDevice`) during a signature, which evicts the sniffer. That's why signing has its own signal path through the wrapper.
+- The **watchdog** clears any trigger that never resolves within 45s. Without it, a crashed helper would leave its id "active" forever and silently swallow every future alert.
+
+## Adding an alert style
+
+1. Subclass `OverlayView` and override `play(completion:)`. Build layers with `strokeLayer`, `glow`, `keyframes(_:_:over:eased:)` and `group`. Keep geometry on `BorderGeometry` (`loop`, `half`, `quarter`, `perimeter`, `gradientRail`).
+2. Wrap every animation in `runTransaction { … }` so `completion` fires when the whole effect finishes. That's what orders the window out.
+3. Leave model values invisible (opacity 0, `strokeEnd` 0), so nothing lingers between the last frame and `orderOut`.
+4. Add the case to `AlertStyle` (label + blurb), a symbol and short label in `SettingsView.swift`, and a branch in `FlashController.pulseAll`.
+5. Give it a *different motion* from the existing ones (travel, flow, snap, rhythm). A new style that only differs in colour isn't worth a setting.
+
+Reduce Motion and reminder escalation force Classic automatically. Nothing to do per style.
+
+## Releasing
+
+Version lives in **one place**: `CFBundleShortVersionString` in `Resources/Info.plist`. The build number is `git rev-list --count HEAD`.
+
+```sh
+# bump Info.plist → commit → tag
+git tag v0.3 && git push origin v0.3      # CI: .github/workflows/release.yml publishes
+# or locally
+make publish                              # needs gh + the env below
+```
+
+CI refuses a tag that doesn't match the plist. Running the workflow manually (*Actions → Release → Run workflow*) is a dry run: it builds and uploads artifacts but doesn't publish.
+
+| Where | Signing | Notarization |
+|---|---|---|
+| Local | `DEVELOPER_ID="Developer ID Application: Name (TEAMID)"` | `NOTARY_PROFILE=<name>` from `xcrun notarytool store-credentials` |
+| GitHub secrets | `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`, `DEVELOPER_ID` | `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` |
+
+Without them, the release still ships ad-hoc signed, and the notes tell users how to approve the first launch.
+
+## Gotchas
+
+- **Finder caches app icons.** After `make icon`, reinstall and `killall Finder`.
+- **The singleton guard exits a second instance at launch.** If `make run` seems to quit instantly, a launch-at-login copy is already running: `pkill -x Flash`.
+- **TCC grants bind to the code signature.** Expect one re-grant when switching between ad-hoc and Developer ID builds.
+- **The Settings window sizes from `NSHostingView.fittingSize`.** Keep `SettingsView` built from plain stacks, not a grouped `Form`, which reports no real height.
+- **Accessory apps aren't active by default.** The popover calls `NSApp.activate` first, or ⌘-shortcuts and click-outside-to-close misbehave.
+- **macOS ships bash 3.2.** Scripts avoid bash 4 features and guard empty array expansions under `set -u`.
+
+## Roadmap
+
+See `TODO.md`: GUI password-dialog watcher (AX), terminal prompt watcher, per-trigger colours, display picker.

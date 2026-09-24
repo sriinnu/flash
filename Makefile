@@ -29,6 +29,7 @@ bundle: build Resources/Flash.icns
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$(date +%Y%m%d%H%M%S)" $(APP)/Contents/Info.plist
 	cp Resources/Flash.icns $(APP)/Contents/Resources/Flash.icns
+	cp tools/git-ssh-keygen-flash $(APP)/Contents/Resources/git-ssh-keygen-flash
 	codesign --force --sign - $(APP)
 	@echo "build $$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' $(APP)/Contents/Info.plist)"
 

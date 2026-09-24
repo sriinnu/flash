@@ -1,0 +1,64 @@
+#!/bin/bash
+#
+# git-ssh-keygen-flash — drop-in `gpg.ssh.program` for git that tells Flash
+# when an SSH commit signature is about to need a security-key touch.
+#
+#   git config --global gpg.ssh.program \
+#     /Applications/Flash.app/Contents/Resources/git-ssh-keygen-flash
+#
+# Why a wrapper at all: during a real signature libfido2 opens the key with
+# kIOHIDOptionsTypeSeizeDevice, which evicts Flash's passive HID sniffer for
+# the whole transaction. So the signal has to come from the signing process:
+#
+#   SIGUSR1 → Flash       "touch needed"   (before ssh-keygen runs)
+#   exit code → $TMPDIR/flash-signing-result, then SIGUSR2 → Flash "done"
+#
+# Everything that isn't `-Y sign` (verify, find-principals, …) passes straight
+# through untouched, and signing with a non-security-key (plain ed25519/rsa)
+# doesn't alert — nothing to touch there.
+#
+# Env:
+#   FLASH_SSH_KEYGEN   ssh-keygen to run (default: first on PATH). Apple's
+#                      bundled one may lack FIDO support — Homebrew's
+#                      openssh works: /opt/homebrew/bin/ssh-keygen
+#   FLASH_ALWAYS=1     alert even when the key doesn't look like an sk- key
+
+set -u
+
+REAL="${FLASH_SSH_KEYGEN:-ssh-keygen}"
+
+is_sign=0
+key_file=""
+prev=""
+for arg in "$@"; do
+    [[ "$prev" == "-Y" && "$arg" == "sign" ]] && is_sign=1
+    [[ "$prev" == "-f" ]] && key_file="$arg"
+    prev="$arg"
+done
+
+[[ $is_sign -eq 1 ]] || exec "$REAL" "$@"
+
+# git hands ssh-keygen the *public* key (a file, or a temp file holding the
+# literal key). Security-key types all start with "sk-".
+is_sk=0
+if [[ "${FLASH_ALWAYS:-0}" == "1" ]]; then
+    is_sk=1
+elif [[ -n "$key_file" && -r "$key_file" ]] && grep -q 'sk-' "$key_file" 2>/dev/null; then
+    is_sk=1
+elif [[ -n "$key_file" && -r "${key_file}.pub" ]] && grep -q 'sk-' "${key_file}.pub" 2>/dev/null; then
+    is_sk=1
+fi
+
+pid=""
+[[ $is_sk -eq 1 ]] && pid="$(pgrep -x Flash 2>/dev/null | head -n 1)"
+[[ -z "$pid" ]] && exec "$REAL" "$@"   # Flash not running / not a touch: stay out of the way
+
+# Must match SignTrigger.resultURL (NSTemporaryDirectory == this user's $TMPDIR).
+result="${TMPDIR:-/tmp}/flash-signing-result"
+
+kill -USR1 "$pid" 2>/dev/null
+"$REAL" "$@"
+code=$?
+printf '%s\n' "$code" > "$result" 2>/dev/null
+kill -USR2 "$pid" 2>/dev/null
+exit "$code"

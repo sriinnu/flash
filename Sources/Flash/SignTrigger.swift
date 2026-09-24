@@ -2,7 +2,8 @@ import Dispatch
 import Foundation
 
 /// Catches SSH-commit-signing touch requests via SIGUSR1/SIGUSR2 from
-/// `git-ssh-keygen-titan`, since libfido2 opens the key with
+/// `tools/git-ssh-keygen-flash` (shipped in the app bundle; Sriinnu's older
+/// `git-ssh-keygen-titan` speaks the same protocol), since libfido2 opens the key with
 /// kIOHIDOptionsTypeSeizeDevice during signing — that evicts FidoSniffer's
 /// non-exclusive HID listener for the whole transaction, so this trigger has
 /// to come from the signing process itself rather than from watching the key.
