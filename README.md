@@ -32,6 +32,24 @@ The Titan's touch LED is easy to miss — a small blink on a USB dongle is no ma
 
 GUI password-dialog and terminal-prompt watchers are next — see `TODO.md`.
 
+## Install
+
+Grab the latest **Flash-x.y.dmg** from [Releases](https://github.com/sriinnu/flash/releases), open it, drag **Flash** into **Applications**, launch it — it lives in the menu bar. Universal build (Apple Silicon + Intel), macOS 14+.
+
+If a release isn't notarized, macOS blocks the first launch: **System Settings → Privacy & Security → Open Anyway**.
+
+## Release
+
+Bump `CFBundleShortVersionString` in `Resources/Info.plist`, commit, then:
+
+```sh
+git tag v0.3 && git push origin v0.3   # GitHub Actions builds, signs, notarizes, publishes
+make release                           # or locally: artifacts in dist/
+make publish                           # or locally + create the GitHub release (gh CLI)
+```
+
+Signing/notarization secrets are documented at the top of `.github/workflows/release.yml` and `tools/release.sh`.
+
 ## Build & run
 
 ```sh

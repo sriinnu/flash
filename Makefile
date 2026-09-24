@@ -47,7 +47,15 @@ install: bundle
 	touch /Applications/$(APP)
 	@echo "Installed to /Applications/Flash.app — open it once, then enable Launch at login in Settings."
 
-clean:
-	rm -rf .build $(APP)
+# Universal, signed (+ notarized if configured) dmg/zip in dist/. See tools/release.sh.
+release:
+	tools/release.sh
 
-.PHONY: build bundle run open-app clean
+# Same, then creates the GitHub release for the Info.plist version (needs gh).
+publish:
+	tools/release.sh --publish
+
+clean:
+	rm -rf .build $(APP) dist
+
+.PHONY: build bundle run open-app release publish clean
