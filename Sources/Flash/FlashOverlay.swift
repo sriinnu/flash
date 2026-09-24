@@ -75,6 +75,67 @@ class OverlayView: NSView {
         body()
         CATransaction.commit()
     }
+
+    // MARK: Shared layer + keyframe plumbing
+
+    /// A full-bounds stroke on `path`, invisible by model value
+    /// (strokeEnd 0, opacity 0) — animations bring it to life, and when they
+    /// end nothing is left drawn for the frame before orderOut.
+    func strokeLayer(path: CGPath, color: NSColor, width: CGFloat) -> CAShapeLayer {
+        let layer = CAShapeLayer()
+        layer.frame = bounds
+        layer.path = path
+        layer.fillColor = nil
+        layer.strokeColor = color.cgColor
+        layer.lineWidth = width
+        layer.lineCap = .round
+        layer.lineJoin = .round
+        layer.strokeStart = 0
+        layer.strokeEnd = 0
+        layer.opacity = 0
+        return layer
+    }
+
+    /// Neon bloom. Shape-layer shadows re-render every frame the path
+    /// changes, so use it on the few layers that sell the effect, not all.
+    func glow(_ layer: CALayer, _ color: NSColor, radius: CGFloat) {
+        layer.shadowColor = color.cgColor
+        layer.shadowRadius = radius
+        layer.shadowOpacity = 1
+        layer.shadowOffset = .zero
+    }
+
+    /// Keyframe animation from (seconds, value) pairs laid out over
+    /// `duration`. Times are normalised here so effects think in seconds.
+    /// `eased` puts ease-in-out on every segment instead of linear — right
+    /// for a handful of hand-placed keys, wrong for dense precomputed samples.
+    func keyframes(
+        _ keyPath: String,
+        _ frames: [(Double, Double)],
+        over duration: Double,
+        eased: Bool = false
+    ) -> CAKeyframeAnimation {
+        let anim = CAKeyframeAnimation(keyPath: keyPath)
+        anim.values = frames.map { $0.1 }
+        anim.keyTimes = frames.map { NSNumber(value: min(1, max(0, $0.0 / duration))) }
+        anim.duration = duration
+        anim.calculationMode = .linear
+        if eased, frames.count > 1 {
+            anim.timingFunctions = Array(
+                repeating: CAMediaTimingFunction(name: .easeInEaseOut),
+                count: frames.count - 1
+            )
+        }
+        return anim
+    }
+
+    func group(_ animations: [CAAnimation], over duration: Double, repeats: Int = 1) -> CAAnimationGroup {
+        let g = CAAnimationGroup()
+        g.animations = animations
+        g.duration = duration
+        g.repeatCount = Float(max(1, repeats))
+        return g
+    }
 }
 
 // MARK: - Shared geometry
@@ -118,6 +179,44 @@ enum BorderGeometry {
                     radius: cornerRadius)
         path.addLine(to: CGPoint(x: r.midX, y: r.minY))
         return path
+    }
+
+    /// Arc-length of `loop(in:)`: straight runs plus four quarter-circles.
+    /// Marquee dashes are sized to divide this exactly so the pattern closes
+    /// on itself with no half-dash seam at the path's start.
+    static func perimeter(in bounds: CGRect) -> CGFloat {
+        let r = rect(in: bounds)
+        return 2 * (r.width + r.height) - 8 * cornerRadius + 2 * .pi * cornerRadius
+    }
+
+    enum Corner: CaseIterable { case topLeft, topRight, bottomRight, bottomLeft }
+
+    /// A quarter of the border: from the middle of the horizontal edge,
+    /// round the corner, to the middle of the vertical edge. Four of these
+    /// tile the full loop — target lock grows each from its corner outward
+    /// until they meet.
+    static func quarter(_ corner: Corner, in bounds: CGRect) -> CGPath {
+        let r = rect(in: bounds)
+        let cx = (corner == .topLeft || corner == .bottomLeft) ? r.minX : r.maxX
+        let cy = (corner == .topLeft || corner == .topRight) ? r.maxY : r.minY
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: r.midX, y: cy))
+        path.addArc(tangent1End: CGPoint(x: cx, y: cy),
+                    tangent2End: CGPoint(x: cx, y: r.midY),
+                    radius: cornerRadius)
+        path.addLine(to: CGPoint(x: cx, y: r.midY))
+        return path
+    }
+
+    /// Fraction along `quarter(_:in:)` where the corner's arc is centred,
+    /// and the total length of that path — same for all four corners.
+    static func quarterMetrics(in bounds: CGRect) -> (corner: Double, length: Double) {
+        let r = rect(in: bounds)
+        let h = Double(r.width / 2 - cornerRadius)
+        let v = Double(r.height / 2 - cornerRadius)
+        let arc = Double.pi / 2 * Double(cornerRadius)
+        let total = h + arc + v
+        return ((h + arc / 2) / total, total)
     }
 
     /// Where the two heads meet — bottom-centre, roughly where your hands and
@@ -312,33 +411,13 @@ final class CometChaseView: OverlayView {
         // across the room — shape-layer shadows re-render per frame, so it
         // stays on this one layer only.
         let head = strokeLayer(path: path, color: glowColor, width: BorderGeometry.lineWidth + 2)
-        head.shadowColor = glowColor.cgColor
-        head.shadowRadius = 28
-        head.shadowOpacity = 1
-        head.shadowOffset = .zero
+        glow(head, glowColor, radius: 28)
         root.addSublayer(head)
         head.add(repeating(cometGroup(tail: 0.025, peakAlpha: 1)), forKey: "head")
 
         let core = strokeLayer(path: path, color: .white, width: 4)
         root.addSublayer(core)
         core.add(repeating(cometGroup(tail: 0.012, peakAlpha: 0.95)), forKey: "core")
-    }
-
-    private func strokeLayer(path: CGPath, color: NSColor, width: CGFloat) -> CAShapeLayer {
-        let layer = CAShapeLayer()
-        layer.frame = bounds
-        layer.path = path
-        layer.fillColor = nil
-        layer.strokeColor = color.cgColor
-        layer.lineWidth = width
-        layer.lineCap = .round
-        layer.lineJoin = .round
-        // Model values = "invisible": between repeats and after the final
-        // pass nothing should be left drawn at the meeting point.
-        layer.strokeStart = 0
-        layer.strokeEnd = 0
-        layer.opacity = 0
-        return layer
     }
 
     /// strokeEnd leads, strokeStart trails by `tail`; after impact the tail
@@ -377,10 +456,7 @@ final class CometChaseView: OverlayView {
 
         let burst = circleLayer(radius: 34, at: point)
         burst.fillColor = glowColor.cgColor
-        burst.shadowColor = glowColor.cgColor
-        burst.shadowRadius = 50
-        burst.shadowOpacity = 1
-        burst.shadowOffset = .zero
+        glow(burst, glowColor, radius: 50)
         root.addSublayer(burst)
         burst.add(repeating(group([
             keyframes("transform.scale", [(0, 0.2), (hit, 0.2), (hit + 0.18, 2.4), (t.cycle, 2.4)]),
@@ -410,23 +486,13 @@ final class CometChaseView: OverlayView {
 
     // MARK: Keyframe plumbing
 
-    /// Builds a keyframe animation from (seconds, value) pairs laid out on
-    /// one cycle. Times are normalised here so callers can think in seconds.
+    /// One comet cycle is the time base for everything in this view.
     private func keyframes(_ keyPath: String, _ frames: [(Double, Double)]) -> CAKeyframeAnimation {
-        let cycle = timeline.cycle
-        let anim = CAKeyframeAnimation(keyPath: keyPath)
-        anim.values = frames.map { $0.1 }
-        anim.keyTimes = frames.map { NSNumber(value: min(1, max(0, $0.0 / cycle))) }
-        anim.duration = cycle
-        anim.calculationMode = .linear
-        return anim
+        keyframes(keyPath, frames, over: timeline.cycle)
     }
 
     private func group(_ animations: [CAAnimation]) -> CAAnimationGroup {
-        let g = CAAnimationGroup()
-        g.animations = animations
-        g.duration = timeline.cycle
-        return g
+        group(animations, over: timeline.cycle)
     }
 
     private func repeating(_ anim: CAAnimation) -> CAAnimation {

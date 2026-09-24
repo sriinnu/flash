@@ -185,6 +185,18 @@ struct SettingsView: View {
                 }
             }
 
+            HStack {
+                Text(alertStyle.blurb)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                // Plays whatever is picked right now — @AppStorage has already
+                // written it through, so the controller reads the new style.
+                Button("Preview") {
+                    Task { @MainActor in FlashController.shared.testPulse() }
+                }
+            }
+
             Picker("Flash color", selection: $flashColor) {
                 ForEach(FlashColor.allCases) { preset in
                     HStack {

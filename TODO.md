@@ -58,6 +58,8 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
 - [ ] **Comet chase alert** (built, untested on a Mac) — two comets race top-centre →
       bottom-centre, flare + shockwave on meet. Default alert style; reminders escalate to
       classic; Reduce Motion forces classic. Tune: tail lengths/alphas, travel 0.95s, 2 passes.
+- [ ] **Marquee / Target lock / Heartbeat** (built, untested on a Mac) — extra alert styles
+      in `AlertEffects.swift`, picker + Preview in Settings. Tune speeds/timings on real screens.
 - [ ] Reminder is Off by default → a missed comet never escalates. Consider a one-shot
       auto-escalation (~8s) when reminders are off.
 - [ ] Touch counter / stats in menu (today: N touches)

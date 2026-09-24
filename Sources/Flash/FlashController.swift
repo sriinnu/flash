@@ -104,8 +104,8 @@ final class FlashController: ObservableObject {
 
     /// `escalated` = a reminder re-pulse: the first alert was ignored, so
     /// skip the finesse and go full classic. Reduce Motion also forces
-    /// classic — a comet racing the screen edge is exactly what that
-    /// setting exists to switch off.
+    /// classic — every other style moves the border, which is exactly what
+    /// that setting exists to switch off.
     private func pulseAll(escalated: Bool = false) {
         let settings = FlashSettings.shared
         let style: AlertStyle = (escalated || reduceMotion) ? .classic : settings.alertStyle
@@ -123,6 +123,12 @@ final class FlashController: ObservableObject {
                 switch style {
                 case .comet:
                     return CometChaseView(frame: frame, gradient: gradient, glowColor: glow, passes: passes)
+                case .marquee:
+                    return MarqueeView(frame: frame, gradient: gradient)
+                case .targetLock:
+                    return TargetLockView(frame: frame, gradient: gradient, glowColor: glow)
+                case .heartbeat:
+                    return HeartbeatView(frame: frame, gradient: gradient, glowColor: glow)
                 case .classic:
                     return ClassicFlashView(frame: frame, gradient: gradient, glowColor: glow, flashes: count)
                 }
