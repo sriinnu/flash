@@ -2,18 +2,19 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 
-/// Flash's only real window. Cards instead of a grouped Form: a grouped Form
-/// is a scroll view underneath, so NSHostingView's fittingSize can't report
-/// its true height — plain stacks size exactly to their content, which is
-/// what AppDelegate.openSettings sizes the window from.
+/// Flash's only real window: native-style tabs, fixed size.
 ///
-///   ┌ header: icon · name · version ┐
-///   │ Alert style  tiles + Preview  │
-///   │ Color        gradient swatches│
-///   │ Behavior     remind/count/ripple
-///   │ Detection    prompts, activity│
-///   │ System       launch at login  │
-///   └ footer: Sriinnu · repo link   ┘
+///   ┌ [Alerts] [Detection] [About] ┐
+///   │ Alerts:    style · color · behavior
+///   │ Detection: prompts · ssh · activity + folders
+///   │ About:     header · launch at login · credits
+///   └──────────────────────────────┘
+///
+/// Sriinnu: one long scrolling page outgrew laptop screens, and sizing a
+/// window from SwiftUI's measured height kept losing that fight. So the view
+/// fixes its own size (`windowSize`, capped to the screen), every tab
+/// scrolls inside it as a safety net, and whoever hosts it (our NSWindow or
+/// SwiftUI's Settings scene) just gets a known frame.
 @MainActor
 struct SettingsView: View {
 
@@ -43,18 +44,53 @@ struct SettingsView: View {
     @State private var watchRoots: [String] = FlashSettings.shared.watchRoots
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    enum Tab: String {
+        case alerts, detection, about
+    }
+
+    @AppStorage("settingsTab") private var tab: Tab = .alerts
+
+    /// Tallest tab (Alerts) is ~500pt; capped so a small screen still fits.
+    static var windowSize: NSSize {
+        let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 800
+        return NSSize(width: 460, height: min(560, visible - 80))
+    }
+
     var body: some View {
-        VStack(spacing: 12) {
-            header
-            styleCard
-            colorCard
-            behaviorCard
-            detectionCard
-            systemCard
-            footer
+        TabView(selection: $tab) {
+            page {
+                styleCard
+                colorCard
+                behaviorCard
+            }
+            .tabItem { Label("Alerts", systemImage: "bolt.fill") }
+            .tag(Tab.alerts)
+
+            page {
+                detectionCard
+            }
+            .tabItem { Label("Detection", systemImage: "eye") }
+            .tag(Tab.detection)
+
+            page {
+                header
+                systemCard
+                footer
+            }
+            .tabItem { Label("About", systemImage: "info.circle") }
+            .tag(Tab.about)
         }
-        .padding(18)
-        .frame(width: 440)
+        .padding(12)
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+    }
+
+    private func page<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                content()
+            }
+            .padding(8)
+        }
     }
 
     // MARK: Header
