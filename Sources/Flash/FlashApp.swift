@@ -17,6 +17,10 @@ struct FlashApp: App {
 
 /// No SwiftUI window ever appears (`LSUIElement` in Info.plist), so the menu
 /// bar item built here is the entire visible surface of the app.
+// Whole class on the main actor: it's all AppKit/UI work, and only the
+// NSApplicationDelegate witnesses get that isolation implicitly — plain
+// @objc actions like openSettings() don't.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
@@ -128,7 +132,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         quickMenu.addItem(quit)
     }
 
-    @MainActor
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         if NSApp.currentEvent?.type == .rightMouseUp {
             // Attach, pop synchronously, detach — so the next left-click
@@ -152,7 +155,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController?.view.window?.makeKey()
     }
 
-    @MainActor
     private func updateStatus(running: Bool, state: FlashController.IconState) {
         quickToggleItem.title = running ? "Pause Watching" : "Resume Watching"
         // Paused reads as a dimmed shield — visible at a glance, no popover needed.
