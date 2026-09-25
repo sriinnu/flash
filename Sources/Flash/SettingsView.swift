@@ -163,7 +163,7 @@ struct SettingsView: View {
 
     private var colorCard: some View {
         Card(title: "Color") {
-            HStack(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 32, maximum: 36), spacing: 8)], spacing: 8) {
                 ForEach(FlashColor.allCases) { preset in
                     Button {
                         flashColor = preset
@@ -173,10 +173,10 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     .help(preset.label)
                 }
-                Spacer()
-                Text(flashColor.label)
-                    .foregroundStyle(.secondary)
             }
+            Text(flashColor.label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 
