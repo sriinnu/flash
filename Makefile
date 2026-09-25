@@ -45,6 +45,10 @@ release:
 publish:
 	tools/release.sh --publish
 
+# One-shot: upload signing / notary / tap secrets to GitHub via gh (interactive).
+release-secrets:
+	tools/setup-release-secrets.sh
+
 # Render the Homebrew cask for the built release (dist/ must exist). CI publishes it.
 cask:
 	tools/update-cask.sh --print
@@ -56,4 +60,4 @@ selftest:
 clean:
 	rm -rf .build $(APP) dist
 
-.PHONY: build bundle run open-app icon release publish cask selftest clean
+.PHONY: build bundle run open-app icon release publish release-secrets cask selftest clean
