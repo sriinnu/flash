@@ -29,12 +29,18 @@ The full developer guide is in `DEVELOPMENT.md`. The user-facing setup is in `RE
 - Version comes only from `Resources/Info.plist` → `CFBundleShortVersionString`. Tags are `v<version>`.
 - Commits: no `Co-Authored-By` or other AI-attribution trailers.
 
+## Detection rule
+
+Only things **blocked on the user** may call `FlashController.trigger`. Commits, pushes and stats go to `ActivityLog`, never to the alert. New inputs from outside the app go through `flash-notify` → `EventInbox` → `InboxRouter`; don't add new signal or socket channels.
+
 ## Helping a user set up git
 
 Point `gpg.ssh.program` at `/Applications/Flash.app/Contents/Resources/git-ssh-keygen-flash` (full steps are in README → Set up git).
 
 - The wrapper only alerts for `-Y sign` with an `sk-` key, and only while Flash is running.
 - If Apple's `ssh-keygen` rejects the key type, set `FLASH_SSH_KEYGEN=/opt/homebrew/bin/ssh-keygen`.
+- **Prompts:** `git config --global core.askPass …/flash-askpass`, plus the Settings toggle "SSH prompts via Flash" for ssh.
+- **Attribution:** `git config --global core.hooksPath …/git-hooks` (optional; forwards to repo hooks).
 - **Protocol:** `SIGUSR1` before signing, exit code written to `$TMPDIR/flash-signing-result`, then `SIGUSR2`. If you change it, change both `tools/git-ssh-keygen-flash` and `SignTrigger.swift`.
 
 ## Releasing

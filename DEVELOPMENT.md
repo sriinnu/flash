@@ -19,11 +19,13 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 ## Architecture
 
 ```
-            ┌──────────────── detection ────────────────┐
- FIDO key ──► FidoSniffer (IOHID, CTAPHID keepalive)    │
- git sign ──► git-ssh-keygen-flash ─SIGUSR1/2─► SignTrigger
-            └───────────────────┬───────────────────────┘
-                                │ trigger(id) / resolve(id, success)
+            ┌──────────────────── detection ─────────────────────┐
+ FIDO key ──────► FidoSniffer (IOHID, CTAPHID keepalive)          │
+ git sign ──────► git-ssh-keygen-flash ─SIGUSR1/2─► SignTrigger   │
+ auth dialogs ──► AuthPromptWatcher (window owners, 750ms poll)   │
+ askpass/hooks ─► flash-notify ─file─► EventInbox ─► InboxRouter  │
+            └──────────────────────────┬─────────────────────────┘
+                                       │ trigger(id) / resolve(id, success)
                                 ▼
                   FlashController  (@MainActor, one per app)
                    • active trigger set + watchdog (45s)
@@ -36,7 +38,13 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
                               Heartbeat · SuccessRipple
                                 ▲
                   BorderGeometry: one rail every effect draws on
+
+ repos (FSEvents) ─► RepoActivityWatcher ─┐
+ hooks (attrib) ──► InboxRouter ──────────┴─► ActivityLog ─► menu-bar panel
+                                              (never flashes)
 ```
+
+**Rule of thumb for new detectors:** only something that is *blocked on the user* calls `FlashController.trigger`. Everything else (commits, pushes, stats) goes to `ActivityLog`. Firing the full-screen alert for things that don't need the user trains them to ignore it.
 
 | File | What lives there |
 |---|---|
@@ -50,8 +58,16 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 | `WatchManager.swift` | Starts and stops every detection engine as one; pause state |
 | `FidoSniffer.swift` | IOHID manager on usage page `0xF1D0`, CTAPHID parser |
 | `SignTrigger.swift` | `SIGUSR1` = touch needed, `SIGUSR2` = done (exit code in `$TMPDIR/flash-signing-result`) |
+| `EventInbox.swift` | Inbox folder watcher + `InboxRouter` (`prompt.begin/end`, `attrib`) |
+| `AuthPromptWatcher.swift` | Polls on-screen window owners (`SecurityAgent`, `coreautha`, `pinentry-mac`) |
+| `RepoActivityWatcher.swift` | FSEvents on watched roots; parses reflogs (`commit…`, `update by push`) |
+| `ActivityLog.swift` | `ActivityEvent`, `Actor`, the in-memory log shown in the panel |
+| `SSHPromptRouting.swift` | `launchctl setenv SSH_ASKPASS…` toggle |
 | `Log.swift` | stdout + `~/Library/Logs/Flash.log` |
 | `tools/git-ssh-keygen-flash` | `gpg.ssh.program` wrapper, shipped in `Contents/Resources` |
+| `tools/flash-notify` | The one client for the inbox; works out agent vs you from the process tree |
+| `tools/flash-askpass` | `core.askPass` / `SSH_ASKPASS`: flashes, then asks through a dialog |
+| `tools/git-hooks/` | Optional global hooks: forward to the repo's own hooks, then report who made the change |
 | `tools/release.sh` | Release pipeline (build → sign → notarize → dmg/zip → GitHub) |
 
 ### Detection notes
@@ -59,6 +75,18 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 - **FidoSniffer** opens keys non-exclusively and watches for `KEEPALIVE` with status `UP_NEEDED`. A response packet means the key was touched; `ERROR` means it was cancelled. Some HID stacks prepend a report-ID byte, so the parser checks offset 0 and then offset 1.
 - **SSH signing:** libfido2 *seizes* the device (`kIOHIDOptionsTypeSeizeDevice`) during a signature, which evicts the sniffer. That's why signing has its own signal path through the wrapper.
 - The **watchdog** clears any trigger that never resolves within 45s. Without it, a crashed helper would leave its id "active" forever and silently swallow every future alert.
+
+### Event inbox protocol
+
+`flash-notify key=value …` writes one file into `~/Library/Application Support/Flash/inbox/` containing `ts`, `actor`, `agent` and `app` fields, followed by the caller's fields. Files older than 30s are dropped unread.
+
+| `event=` | Fields | Effect |
+|---|---|---|
+| `prompt.begin` | `id`, `kind` (`touch`, `ssh-passphrase`, `pin`, `password`, `username`, `confirm`) | Alert + log entry |
+| `prompt.end` | `id`, `ok` (`1`/`0`) | Resolve; green ripple only on `ok=1` |
+| `attrib` | `sha` | Sets who made that commit/push in the activity log |
+
+Debug a prompt that doesn't alert: `FLASH_DEBUG_WINDOWS=1 make run` logs every window owner that appears on screen.
 
 ## Adding an alert style
 
