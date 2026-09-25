@@ -1,0 +1,3 @@
+#!/bin/bash
+# Forwarder — see _forward.
+exec "$(dirname "$0")/_forward" "post-index-change" "$@"

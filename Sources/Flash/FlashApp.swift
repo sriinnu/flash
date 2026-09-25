@@ -17,16 +17,31 @@ struct FlashApp: App {
 
 /// No SwiftUI window ever appears (`LSUIElement` in Info.plist), so the menu
 /// bar item built here is the entire visible surface of the app.
+// Whole class on the main actor: it's all AppKit/UI work, and only the
+// NSApplicationDelegate witnesses get that isolation implicitly — plain
+// @objc actions like openSettings() don't.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
-    private let statusMenuItem = NSMenuItem()
-    private let watchToggleItem = NSMenuItem()
+    /// Left-click: the rich panel. Right-click: `quickMenu`, a plain NSMenu
+    /// for muscle memory and for when a popover is the wrong tool.
+    private let popover = NSPopover()
+    private let quickMenu = NSMenu()
+    private let quickToggleItem = NSMenuItem()
     private var cancellables = Set<AnyCancellable>()
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        // Sriinnu: the app was quitting right after Test Flash with nothing
+        // in the log. If an Obj-C exception (CoreAnimation / AppKit) is what
+        // kills it, this at least leaves its name, reason and stack behind.
+        NSSetUncaughtExceptionHandler { exception in
+            Log.write("[crash] uncaught \(exception.name.rawValue): \(exception.reason ?? "no reason")")
+            Log.write("[crash] stack:\n" + exception.callStackSymbols.joined(separator: "\n"))
+        }
 
         // Singleton: if another Flash is already running, defer to it and die.
         // `make install` also pkills any prior instance before copying the
@@ -42,37 +57,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Menu bar status item.
+        // Menu bar status item. No `statusItem.menu` — a set menu swallows
+        // the button's action, and the action is what opens the popover.
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(
-            systemSymbolName: "bolt.shield.fill",
-            accessibilityDescription: "Flash"
-        )
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "bolt.shield.fill", accessibilityDescription: "Flash")
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
 
-        let menu = NSMenu()
-        statusMenuItem.title = "Watching for auth prompts…"
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
-        menu.addItem(.separator())
+        let hosting = NSHostingController(rootView: MenuPanelView(
+            flash: FlashController.shared,
+            watch: WatchManager.shared,
+            activity: ActivityLog.shared,
+            openSettings: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.openSettings()
+            },
+            quit: { NSApp.terminate(nil) }
+        ))
+        // Popover follows the SwiftUI view's size as its content changes.
+        hosting.sizingOptions = .preferredContentSize
+        popover.contentViewController = hosting
+        popover.behavior = .transient
+        popover.animates = true
 
-        watchToggleItem.action = #selector(toggleWatching)
-        watchToggleItem.target = self
-        menu.addItem(watchToggleItem)
-
-        let test = NSMenuItem(title: "Test Flash", action: #selector(testFlash), keyEquivalent: "")
-        test.target = self
-        menu.addItem(test)
-
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Flash", action: #selector(quitApp), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-
-        statusItem.menu = menu
+        buildQuickMenu()
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         Log.write("[app] status item installed in menu bar (v\(version), build \(build))")
@@ -89,30 +100,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        // Exists from first launch so flash-notify can tell Flash is installed,
+        // even while watching is paused.
+        EventInbox.ensureDirectory()
+        if FlashSettings.shared.routeSSHPrompts {
+            SSHPromptRouting.apply(enabled: true)   // launchd forgot it at reboot
+        }
+
         // Start the engines if the user left them on.
         if WatchManager.shared.enabledPreference {
             WatchManager.shared.start()
         }
     }
 
-    @MainActor
+    private func buildQuickMenu() {
+        quickToggleItem.action = #selector(toggleWatching)
+        quickToggleItem.target = self
+        quickMenu.addItem(quickToggleItem)
+
+        let test = NSMenuItem(title: "Test Flash", action: #selector(testFlash), keyEquivalent: "")
+        test.target = self
+        quickMenu.addItem(test)
+
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        quickMenu.addItem(settings)
+
+        quickMenu.addItem(.separator())
+        let quit = NSMenuItem(title: "Quit Flash", action: #selector(quitApp), keyEquivalent: "q")
+        quit.target = self
+        quickMenu.addItem(quit)
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            // Attach, pop synchronously, detach — so the next left-click
+            // still reaches this action instead of the menu.
+            popover.performClose(nil)
+            statusItem.menu = quickMenu
+            sender.performClick(nil)
+            statusItem.menu = nil
+            return
+        }
+
+        if popover.isShown {
+            popover.performClose(sender)
+            return
+        }
+        FlashController.shared.refreshStats()
+        // Accessory apps aren't active by default; without this the popover
+        // can't become key, so ⌘, / ⌘Q and click-outside-to-close misbehave.
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
     private func updateStatus(running: Bool, state: FlashController.IconState) {
-        watchToggleItem.title = running ? "Pause Watching" : "Resume Watching"
+        quickToggleItem.title = running ? "Pause Watching" : "Resume Watching"
+        // Paused reads as a dimmed shield — visible at a glance, no popover needed.
+        statusItem.button?.appearsDisabled = !running
 
         guard running else {
-            statusMenuItem.title = "Watching paused"
+            statusItem.button?.toolTip = "Flash — paused"
             statusItem.button?.contentTintColor = nil
             return
         }
         switch state {
         case .idle:
-            statusMenuItem.title = "Watching for auth prompts…"
+            statusItem.button?.toolTip = "Flash — watching"
             statusItem.button?.contentTintColor = nil
         case .alerting:
-            statusMenuItem.title = "⚡ Your key wants a touch!"
+            statusItem.button?.toolTip = "Flash — your key wants a touch"
             statusItem.button?.contentTintColor = .systemOrange
         case .success:
-            statusMenuItem.title = "✅ Touch confirmed"
+            statusItem.button?.toolTip = "Flash — touch confirmed"
             statusItem.button?.contentTintColor = .systemGreen
         }
     }
@@ -132,15 +193,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (no Dock icon, never "activate" a window on launch) don't
         // reliably reach. Owning the window ourselves always works.
         if settingsWindow == nil {
-            // Explicit NSHostingView + a contentRect derived from its own
-            // fittingSize, set directly as contentView. The
+            // Explicit NSHostingView set directly as contentView, sized from
+            // SettingsView.windowSize (the view fixes its own frame). The
             // contentViewController route rendered blank — overriding
             // styleMask right after that convenience initializer likely
             // fought its own auto-sizing rather than adding to it.
             let hostingView = NSHostingView(rootView: SettingsView())
-            let size = hostingView.fittingSize
             let window = NSWindow(
-                contentRect: NSRect(origin: .zero, size: size),
+                contentRect: NSRect(origin: .zero, size: SettingsView.windowSize),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -148,7 +208,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Flash Settings"
             window.contentView = hostingView
             window.isReleasedWhenClosed = false
-            window.center()
+            // Centre inside the *visible* frame (menu bar and Dock excluded).
+            // `center()` sits windows above centre, too close to the top edge.
+            if let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
+                let frame = window.frame
+                window.setFrameOrigin(NSPoint(
+                    x: visible.midX - frame.width / 2,
+                    y: visible.minY + (visible.height - frame.height) / 2
+                ))
+            }
             settingsWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -157,53 +225,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
-    }
-}
-
-struct SettingsView: View {
-
-    @AppStorage("flashColor") private var flashColor: FlashColor = .amber
-    @AppStorage("reminderInterval") private var reminderInterval: ReminderInterval = .off
-    @AppStorage("flashCount") private var flashCount: Int = 4
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-
-    var body: some View {
-        Form {
-            Picker("Flash color", selection: $flashColor) {
-                ForEach(FlashColor.allCases) { preset in
-                    HStack {
-                        Circle()
-                            .fill(Color(preset.color))
-                            .frame(width: 10, height: 10)
-                        Text(preset.label)
-                    }
-                    .tag(preset)
-                }
-            }
-
-            Picker("Remind again if ignored", selection: $reminderInterval) {
-                ForEach(ReminderInterval.allCases) { interval in
-                    Text(interval.label).tag(interval)
-                }
-            }
-
-            Stepper("Flashes per alert: \(flashCount)", value: $flashCount, in: 2...6)
-
-            Toggle("Launch at login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, on in
-                    do {
-                        if on {
-                            try SMAppService.mainApp.register()
-                        } else {
-                            try SMAppService.mainApp.unregister()
-                        }
-                    } catch {
-                        launchAtLogin = SMAppService.mainApp.status == .enabled
-                    }
-                }
-        }
-        .formStyle(.grouped)
-        .frame(width: 340)
-        .padding()
     }
 }

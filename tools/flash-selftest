@@ -1,0 +1,191 @@
+#!/bin/bash
+#
+# flash-selftest — walk every detection path for real and record what you see.
+#
+#   make selftest            (or: tools/flash-selftest)
+#   tools/flash-selftest 3   run only step 3
+#
+# Each step triggers one path, then asks whether the screen flashed. Nothing
+# is faked inside Flash: these are the same dialogs, askpass calls and git
+# operations an agent would cause. Everything created is cleaned up on exit:
+# the test keychain item and the temporary repos.
+#
+# Needs Flash running (`make run` in another terminal is ideal: you see the
+# log lines live). Safe to authenticate or cancel any dialog it raises; none
+# of them change anything on your Mac.
+
+set -u
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ONLY="${1:-}"
+KEYCHAIN_SERVICE="flash-selftest"
+TMP_ROOTS=()
+passed=()
+failed=()
+skipped=()
+
+bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+note() { printf '  %s\n' "$*"; }
+
+cleanup() {
+    security delete-generic-password -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1
+    local d
+    for d in ${TMP_ROOTS[@]+"${TMP_ROOTS[@]}"}; do rm -rf "$d"; done
+}
+trap cleanup EXIT
+
+# ask "<step name>" — record y / n / s(kip)
+ask() {
+    local answer
+    printf '  → Did the screen flash as described? [y/n/s] '
+    read -r answer </dev/tty
+    case "$answer" in
+        y|Y) passed+=("$1") ;;
+        s|S) skipped+=("$1") ;;
+        *)   failed+=("$1") ;;
+    esac
+}
+
+wants() { [[ -z "$ONLY" || "$ONLY" == "$1" ]]; }
+
+pause() {
+    printf '  Press return to start… '
+    read -r _ </dev/tty
+}
+
+# ── Preflight ────────────────────────────────────────────────────────────
+[[ "$(uname)" == "Darwin" ]] || { echo "macOS only."; exit 1; }
+if ! pgrep -x Flash >/dev/null; then
+    echo "Flash isn't running. Start it (make run) and try again."
+    exit 1
+fi
+for tool in flash-notify flash-askpass git-hooks/_forward; do
+    [[ -x "$HERE/$tool" ]] || { echo "Missing $HERE/$tool"; exit 1; }
+done
+echo "Flash self-test. Watching must be ON (menu-bar switch)."
+echo "Tip: run Flash via 'make run' to watch its log lines as each step fires."
+
+# ── 1. Inbox pipeline ────────────────────────────────────────────────────
+if wants 1; then
+    bold "1. Event inbox (flash-notify → Flash)"
+    note "Sends a fake 'password' prompt, then resolves it 3s later."
+    note "Expect: your alert style plays, then the green success ripple."
+    pause
+    "$HERE/flash-notify" event=prompt.begin id=selftest-1 kind=password
+    sleep 3
+    "$HERE/flash-notify" event=prompt.end id=selftest-1 ok=1
+    sleep 1
+    ask "1 inbox"
+fi
+
+# ── 2. Keychain access prompt ────────────────────────────────────────────
+if wants 2; then
+    bold "2. Keychain access prompt (SecurityAgent)"
+    note "Stores a dummy item that trusts no app, then reads it back."
+    note "Expect: macOS asks 'security wants to use your confidential information…'"
+    note "        and Flash alerts while that dialog is up. Click Deny (or Allow)."
+    pause
+    security delete-generic-password -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1
+    # -T "" = empty trusted-app list, so any read has to ask you.
+    security add-generic-password -a selftest -s "$KEYCHAIN_SERVICE" -w "not-a-real-secret" -T "" >/dev/null
+    security find-generic-password -s "$KEYCHAIN_SERVICE" -w >/dev/null 2>&1
+    ask "2 keychain"
+fi
+
+# ── 3. Admin password / Touch ID ─────────────────────────────────────────
+if wants 3; then
+    bold "3. Admin authorization (SecurityAgent / Touch ID)"
+    note "Asks for admin rights to run 'true' (does nothing)."
+    note "Expect: a password or Touch ID sheet, Flash alerting while it's up."
+    note "        Cancel is fine."
+    pause
+    osascript -e 'do shell script "true" with administrator privileges' >/dev/null 2>&1
+    ask "3 admin/Touch ID"
+fi
+
+# ── 4. askpass: credential prompt ────────────────────────────────────────
+if wants 4; then
+    bold "4. flash-askpass, credential prompt (direct)"
+    note "Calls the askpass the way git would for an HTTPS password."
+    note "Expect: Flash alerts, then a 'Flash — git is waiting on you' dialog."
+    note "        Type anything and press OK (green ripple) or Cancel."
+    pause
+    "$HERE/flash-askpass" "Password for 'https://selftest@example.com': " >/dev/null
+    ask "4 askpass dialog"
+fi
+
+# ── 5. git through askpass ───────────────────────────────────────────────
+if wants 5; then
+    bold "5. Real git HTTPS prompt via core.askPass"
+    note "git ls-remote against a repo that doesn't exist, credential helpers off,"
+    note "so GitHub asks for a username. Same path as an agent's stuck push."
+    note "Expect: alert + 'Username for …' dialog. Cancel it; git then fails (fine)."
+    pause
+    git -c credential.helper= -c core.askPass="$HERE/flash-askpass" \
+        ls-remote "https://github.com/sriinnu/flash-selftest-$RANDOM-does-not-exist.git" >/dev/null 2>&1
+    ask "5 git askpass"
+fi
+
+# ── 6. ssh key-touch notification ────────────────────────────────────────
+if wants 6; then
+    bold "6. Security-key touch notification (ssh askpass 'none' mode)"
+    note "Mimics ssh's 'Confirm user presence for key…': askpass starts,"
+    note "then ssh kills it when the key is touched. Simulated with a 4s timer."
+    note "Expect: alert for ~4s, then the green ripple."
+    pause
+    SSH_ASKPASS_PROMPT=none "$HERE/flash-askpass" "Confirm user presence for key ED25519-SK (selftest)" &
+    sleep 4
+    kill -TERM $! 2>/dev/null
+    wait $! 2>/dev/null
+    sleep 1
+    ask "6 touch notification"
+fi
+
+# ── 7. Activity log + attribution ────────────────────────────────────────
+if wants 7; then
+    bold "7. Activity log (commit + push, attributed)"
+    root="$(defaults read com.sriinnu.flash watchRoots 2>/dev/null | sed -n 's/^ *"\{0,1\}\([^",]*\)"\{0,1\},\{0,1\}$/\1/p' | grep -v '^[()]' | head -n 1)"
+    if [[ -z "$root" || ! -d "$root" ]]; then
+        note "No watched folder found in Settings → Detection. Add one and rerun: tools/flash-selftest 7"
+        skipped+=("7 activity (no watched folder)")
+    else
+        note "Creates a throwaway repo in $root, commits as an agent and as you,"
+        note "then pushes to a local bare remote."
+        note "Expect in the menu-bar panel → RECENT: two commits (one chip 'Claude',"
+        note "one 'You') and one 'Pushed to origin/main'. No flashing, that's the point."
+        pause
+        work="$(mktemp -d "$root/.flash-selftest-XXXXXX")"
+        remote="$(mktemp -d)"
+        TMP_ROOTS+=("$work" "$remote")
+        git init -q --bare "$remote/r.git"
+        (
+            cd "$work" || exit 1
+            git init -q -b main
+            git config user.email selftest@flash.local
+            git config user.name "Flash selftest"
+            git config core.hooksPath "$HERE/git-hooks"   # attribution, this repo only
+            git remote add origin "$remote/r.git"
+            echo a > a && git add a && CLAUDECODE=1 git commit -qm "selftest: agent commit"
+            sleep 1
+            echo b > b && git add b && env -u CLAUDECODE git commit -qm "selftest: your commit"
+            sleep 1
+            git push -q origin main 2>/dev/null
+        )
+        note "Open the panel now and check RECENT."
+        ask "7 activity log"
+    fi
+fi
+
+# ── Summary ──────────────────────────────────────────────────────────────
+bold "Results"
+for s in ${passed[@]+"${passed[@]}"};  do printf '  \033[32m✓\033[0m %s\n' "$s"; done
+for s in ${failed[@]+"${failed[@]}"};  do printf '  \033[31m✗\033[0m %s\n' "$s"; done
+for s in ${skipped[@]+"${skipped[@]}"}; do printf '  – %s (skipped)\n' "$s"; done
+
+if [[ ${#failed[@]} -gt 0 ]]; then
+    echo
+    echo "To debug a failure, grab:"
+    echo "  tail -60 ~/Library/Logs/Flash.log"
+    echo "  and for steps 2–3: FLASH_DEBUG_WINDOWS=1 make run, redo the step, then the log again"
+    exit 1
+fi

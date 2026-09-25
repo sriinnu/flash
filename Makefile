@@ -29,6 +29,8 @@ bundle: build Resources/Flash.icns
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$(date +%Y%m%d%H%M%S)" $(APP)/Contents/Info.plist
 	cp Resources/Flash.icns $(APP)/Contents/Resources/Flash.icns
+	cp tools/git-ssh-keygen-flash tools/flash-notify tools/flash-askpass $(APP)/Contents/Resources/
+	cp -R tools/git-hooks $(APP)/Contents/Resources/git-hooks
 	codesign --force --sign - $(APP)
 	@echo "build $$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' $(APP)/Contents/Info.plist)"
 
@@ -47,7 +49,19 @@ install: bundle
 	touch /Applications/$(APP)
 	@echo "Installed to /Applications/Flash.app — open it once, then enable Launch at login in Settings."
 
-clean:
-	rm -rf .build $(APP)
+# Universal, signed (+ notarized if configured) dmg/zip in dist/. See tools/release.sh.
+release:
+	tools/release.sh
 
-.PHONY: build bundle run open-app clean
+# Same, then creates the GitHub release for the Info.plist version (needs gh).
+publish:
+	tools/release.sh --publish
+
+# Guided test of every detection path (needs Flash running). Step N only: make selftest STEP=N
+selftest:
+	tools/flash-selftest $(STEP)
+
+clean:
+	rm -rf .build $(APP) dist
+
+.PHONY: build bundle run open-app release publish selftest clean

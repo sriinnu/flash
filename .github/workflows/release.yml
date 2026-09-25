@@ -1,0 +1,96 @@
+# Push a tag matching Info.plist's version (e.g. v0.3) and this builds,
+# signs, notarizes and publishes Flash to GitHub Releases.
+#
+#   git tag v0.3 && git push origin v0.3
+#
+# Signing + notarization kick in only when the secrets below exist; without
+# them the release is still published, ad-hoc signed, with first-launch
+# instructions in the notes.
+#
+#   DEVELOPER_ID_P12_BASE64   base64 of the exported "Developer ID Application" .p12
+#   DEVELOPER_ID_P12_PASSWORD password chosen when exporting that .p12
+#   DEVELOPER_ID              e.g. "Developer ID Application: Your Name (TEAMID)"
+#   NOTARY_KEY_P8_BASE64      base64 of the App Store Connect API key (AuthKey_XXXX.p8)
+#   NOTARY_KEY_ID             that key's Key ID
+#   NOTARY_ISSUER             Issuer ID from the same App Store Connect page
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the release + upload assets
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      # Step-level `if:` can't see secrets, so resolve "is it configured?" once here.
+      HAS_P12: ${{ secrets.DEVELOPER_ID_P12_BASE64 != '' }}
+      HAS_P8: ${{ secrets.NOTARY_KEY_P8_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: build number = commit count, changelog = log since last tag
+
+      - name: Import Developer ID certificate
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        if: env.HAS_P12 == 'true'
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # Keep the login keychain in the search list, add ours in front.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Write notary API key
+        env:
+          P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+        if: env.HAS_P8 == 'true'
+        run: |
+          echo "$P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          echo "NOTARY_KEY_PATH=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+        run: |
+          # workflow_dispatch = dry run: build + attach artifacts to the run, don't publish.
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tools/release.sh --publish
+          else
+            tools/release.sh
+          fi
+
+      - name: Keep artifacts on the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flash-release
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/SHA256SUMS
+            dist/RELEASE_NOTES.md
+          if-no-files-found: ignore
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          [[ -n "${KEYCHAIN:-}" ]] && security delete-keychain "$KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/notary.p8"

@@ -1,40 +1,67 @@
 <p align="center">
-  <img src="Resources/logo.png" width="160" alt="Flash logo">
+  <img src="Resources/logo.png" width="140" alt="Flash logo">
 </p>
 
 <h1 align="center">Flash</h1>
 
-<p align="center">
-  A menu-bar alerter for the moment your Titan key wants a touch and you're looking somewhere else.
-</p>
+<p align="center">A macOS menu-bar app that lights up your screen edges when something is waiting on you:<br>a security key touch, a keychain prompt, or an agent's <code>git push</code> stuck on a passphrase.</p>
+
+<p align="center">macOS 14+ · Apple Silicon & Intel · no dependencies · <a href="LICENSE">MIT</a></p>
 
 ---
 
-## Why
+## What it catches
 
-The Titan's touch LED is easy to miss — a small blink on a USB dongle is no match for a monitor you're not looking at. Every time a `git commit`/`git push` needs a signature, or a password dialog or terminal prompt is waiting on you, Flash pulses the edges of every display a few times and stops. Full-screen, impossible to miss from across the room, gone as soon as it's made its point.
+| Waiting on you | How |
+|---|---|
+| FIDO / passkey touch (browser, WebAuthn) | Watches USB security-key traffic |
+| SSH commit signing with an `sk-` key | `git-ssh-keygen-flash` wrapper |
+| Keychain, password, Touch ID, GPG PIN dialogs | Watches for those system dialogs on screen |
+| git/ssh passphrase, PIN, credential, key touch | `flash-askpass` |
 
-## What it does
+It also keeps an **activity log** of commits and successful pushes, with agent vs you, in the menu-bar panel. The log never flashes.
 
-- **FIDO/Titan sniffer** — watches CTAPHID traffic for `KEEPALIVE/UP_NEEDED` (touch requested).
-- **SSH-signing watcher** — hooks the `git-ssh-keygen-titan` wrapper directly via `SIGUSR1`/`SIGUSR2`, since libfido2 opens the key with `kIOHIDOptionsTypeSeizeDevice` during a real signature, which evicts any app trying to sniff that traffic non-exclusively.
-- Menu-bar status item only — no dock icon, no windows. Icon tints amber while something's waiting, green for a few seconds after a confirmed touch.
-- Settings: flash color, flash count, reminder re-pulse if you miss it, launch at login.
+## Install
 
-GUI password-dialog and terminal-prompt watchers are next — see `TODO.md`.
+Download `Flash-x.y.dmg` from [Releases](https://github.com/sriinnu/flash/releases) and drag it to Applications. If macOS blocks the first launch: **System Settings → Privacy & Security → Open Anyway**.
 
-## Build & run
+## Git setup (optional, pick what you need)
 
 ```sh
-make install   # → /Applications/Flash.app
-make run       # run from a terminal, for watching sniffer logs live
-make icon      # regenerate the app icon from tools/render_icon.swift
+R=/Applications/Flash.app/Contents/Resources
+
+# Alert on SSH commit signing with a security key
+git config --global gpg.format ssh
+git config --global commit.gpgsign true
+git config --global user.signingkey ~/.ssh/id_ed25519_sk.pub
+git config --global gpg.ssh.program "$R/git-ssh-keygen-flash"
+
+# HTTPS credential prompts → dialog + alert
+git config --global core.askPass "$R/flash-askpass"
+
+# Activity log: record who made each commit/push (agent vs you)
+git config --global core.hooksPath "$R/git-hooks"
 ```
 
-Logs: `~/Library/Logs/Flash.log`
+- **ssh prompts** (passphrase, PIN, key touch): turn on **Settings → Detection → SSH prompts via Flash**. This also reaches agents in GUI apps like Claude.app. Relaunch those apps afterwards.
+- **Global hooks** run each repo's own hooks first, unchanged. Repos with their own `core.hooksPath` (husky, lefthook) keep it. Undo with `git config --global --unset core.hooksPath`.
+- **Apple's `ssh-keygen` lacks FIDO support?** Run `brew install openssh` and set `FLASH_SSH_KEYGEN=/opt/homebrew/bin/ssh-keygen`.
 
-## Requirements
+## Use
 
-- macOS 14+
-- A FIDO2 security key (built and verified against a Titan Security Key v2)
-- Swift 5.9 toolchain, no external dependencies
+| | |
+|---|---|
+| Left-click icon | Status, touches today, recent activity, style switcher, tests |
+| Right-click icon | Plain menu |
+| Settings (⌘,) | **Alerts** (style, 13 colours, reminders) · **Detection** (prompts, ssh, activity folders) · **About** |
+| Logs | `~/Library/Logs/Flash.log` |
+
+## Build
+
+```sh
+make run       # build + run in the foreground, logs to the terminal
+make install   # → /Applications/Flash.app
+make selftest  # with Flash running: triggers every detection path, pass/fail per step
+```
+
+Architecture, adding alert styles and releasing are covered in [DEVELOPMENT.md](DEVELOPMENT.md).

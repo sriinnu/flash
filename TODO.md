@@ -37,7 +37,16 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
 
 ## 🔨 Remaining engines (build after live test passes)
 
-- [ ] **GUI password-dialog watcher** (task #5)
+- [x] **Auth-prompt watcher** (built, untested on a Mac) — window-owner polling, no AX
+      permission needed. Owners: SecurityAgent, coreautha, pinentry-mac. Verify the
+      Touch ID owner name with FLASH_DEBUG_WINDOWS=1.
+- [x] **Git waiting-on-you** (built, untested) — flash-askpass for core.askPass + SSH_ASKPASS
+      (launchctl toggle). Verify ssh's SSH_ASKPASS_PROMPT=none touch notification fires with
+      SSH_ASKPASS_REQUIRE=force and no DISPLAY.
+- [x] **Activity log** (built, untested) — FSEvents on reflogs + optional global hooks for
+      attribution. Hook forwarding verified on Linux git (repo hooks still block).
+- [x] Settings split into Alerts / Detection / About tabs at a fixed, screen-capped size (the single page ran under the Dock).
+- [ ] ~~GUI password-dialog watcher~~ superseded by the auth-prompt watcher above (task #5)
       AX observer on new windows system-wide; trigger when window contains `AXSecureTextField`.
       Needs Accessibility permission (one-time grant, add onboarding prompt + deep link to
       System Settings). Catch: SecurityAgent auth dialogs, app unlock sheets, keychain prompts.
@@ -53,13 +62,21 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
 
 ## ✨ Polish backlog (post-MVP, user mentioned interest)
 
-- [ ] Success ripple/animation on touch (hang off `resolve(success: true)`)
-- [ ] Touch counter / stats in menu (today: N touches)
+- [x] Success ripple/animation on touch — green rings collapse inward; toggle in Settings,
+      "Test Success" in menu. **Needs eyes on real hardware.**
+- [ ] **Comet chase alert** (built, untested on a Mac) — two comets race top-centre →
+      bottom-centre, flare + shockwave on meet. Default alert style; reminders escalate to
+      classic; Reduce Motion forces classic. Tune: tail lengths/alphas, travel 0.95s, 2 passes.
+- [ ] **Marquee / Target lock / Heartbeat** (built, untested on a Mac) — extra alert styles
+      in `AlertEffects.swift`, picker + Preview in Settings. Tune speeds/timings on real screens.
+- [ ] Reminder is Off by default → a missed comet never escalates. Consider a one-shot
+      auto-escalation (~8s) when reminders are off.
+- [x] Touch counter / stats in menu (today: N touches) — menu-bar panel
 - [ ] Subtle success sound (optional, off by default)
 - [ ] Per-trigger colors (gold = Titan, blue = password) — 5-line diff in pulseAll
 - [ ] Caps-lock LED blink as secondary channel (Twitter-hack homage, IOKit LED control)
 - [ ] Flash display picker (all displays vs prompt's display) — default stays "all"
-- [ ] Icon state for "paused" (dim shield?)
+- [x] Icon state for "paused" — dimmed shield (`appearsDisabled`)
 
 ## 📦 Distribution (when solid)
 

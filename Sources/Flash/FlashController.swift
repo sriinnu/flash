@@ -16,7 +16,24 @@ final class FlashController: ObservableObject {
     @Published private(set) var activeTriggers: Set<String> = []
     @Published private(set) var iconState: IconState = .idle
 
-    private var overlayWindows: [BorderWindow] = []
+    /// Confirmed touches since local midnight — shown in the menu-bar panel.
+    /// Persisted so a relaunch mid-day doesn't zero it.
+    @Published private(set) var touchesToday = 0
+    /// Last *real* alert (not Test Flash), in-memory only.
+    @Published private(set) var lastAlertAt: Date?
+
+    private init() {
+        refreshStats()
+    }
+
+    /// Alert and celebration windows tracked apart so a touch can cut the
+    /// alert short without also killing the ripple it's about to trigger.
+    private var alertWindows: [OverlayWindow] = []
+    private var celebrationWindows: [OverlayWindow] = []
+
+    /// Passes per comet alert. Two ≈ 3s, about what four classic flashes
+    /// take — one pass alone was too easy to miss with reminders off.
+    private let cometPasses = 2
     private var reminderTask: Task<Void, Never>?
     private var successResetTask: Task<Void, Never>?
     private var watchdogTasks: [String: Task<Void, Never>] = [:]
@@ -33,6 +50,7 @@ final class FlashController: ObservableObject {
     func trigger(_ id: String) {
         guard !activeTriggers.contains(id) else { return }
         activeTriggers.insert(id)
+        lastAlertAt = Date()
         successResetTask?.cancel()
         iconState = .alerting
         pulseAll()
@@ -48,6 +66,9 @@ final class FlashController: ObservableObject {
         watchdogTasks[id] = nil
 
         if success {
+            recordTouch()
+            dismissAlerts()
+            if FlashSettings.shared.successRipple { celebrateAll() }
             iconState = .success
             successResetTask?.cancel()
             successResetTask = Task { [weak self] in
@@ -67,6 +88,7 @@ final class FlashController: ObservableObject {
 
     /// Hard reset — used when watching is paused.
     func resolveAll() {
+        dismissAlerts()
         activeTriggers.removeAll()
         reminderTask?.cancel()
         reminderTask = nil
@@ -81,21 +103,105 @@ final class FlashController: ObservableObject {
         pulseAll()
     }
 
-    private func pulseAll() {
-        let preset = FlashSettings.shared.flashColor
-        let count = FlashSettings.shared.flashCount
-        // Resolved once per pulse, not per screen — see BorderWindow's init.
+    /// Manual success ripple from the menu — ignores the settings toggle,
+    /// since asking to see it is the whole point.
+    func testSuccess() {
+        dismissAlerts()
+        celebrateAll()
+    }
+
+    // MARK: Stats
+
+    private static let statsDayKey = "statsDay"
+    private static let statsTouchesKey = "statsTouches"
+
+    /// Re-reads today's count, zeroing it if the stored day isn't today.
+    /// Called on launch and each time the panel opens, so an app left
+    /// running overnight doesn't show yesterday's number.
+    func refreshStats() {
+        let defaults = UserDefaults.standard
+        let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        if defaults.double(forKey: Self.statsDayKey) != today {
+            defaults.set(today, forKey: Self.statsDayKey)
+            defaults.set(0, forKey: Self.statsTouchesKey)
+        }
+        touchesToday = defaults.integer(forKey: Self.statsTouchesKey)
+    }
+
+    private func recordTouch() {
+        refreshStats()
+        touchesToday += 1
+        UserDefaults.standard.set(touchesToday, forKey: Self.statsTouchesKey)
+    }
+
+    private var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    /// `escalated` = a reminder re-pulse: the first alert was ignored, so
+    /// skip the finesse and go full classic. Reduce Motion also forces
+    /// classic — every other style moves the border, which is exactly what
+    /// that setting exists to switch off.
+    private func pulseAll(escalated: Bool = false) {
+        let settings = FlashSettings.shared
+        let style: AlertStyle = (escalated || reduceMotion) ? .classic : settings.alertStyle
+        let preset = settings.flashColor
+        let count = settings.flashCount
+        let passes = cometPasses
+        // Resolved once per pulse, not per screen, so a "random" roll shows
+        // the same colors on every display and the glow matches the stroke.
         let gradient = preset == .random ? FlashColor.randomVividGradient() : preset.gradient
         let glow = gradient[0]
+        Log.write("[controller] alert — \(style.rawValue)\(escalated ? " (escalated)" : "")")
+
         for screen in NSScreen.screens {
-            let window = BorderWindow(screen: screen, gradient: gradient, glowColor: glow)
-            overlayWindows.append(window)
-            window.pulse(flashes: count) { [weak self] in
+            let window = OverlayWindow(screen: screen) { frame in
+                switch style {
+                case .comet:
+                    return CometChaseView(frame: frame, gradient: gradient, glowColor: glow, passes: passes)
+                case .marquee:
+                    return MarqueeView(frame: frame, gradient: gradient)
+                case .targetLock:
+                    return TargetLockView(frame: frame, gradient: gradient, glowColor: glow)
+                case .heartbeat:
+                    return HeartbeatView(frame: frame, gradient: gradient, glowColor: glow)
+                case .classic:
+                    return ClassicFlashView(frame: frame, gradient: gradient, glowColor: glow, flashes: count)
+                }
+            }
+            alertWindows.append(window)
+            let name = screen.localizedName
+            window.play { [weak self] in
+                // Paired with the "alert —" line above: if the app dies and
+                // this never shows, it died mid-animation, not in cleanup.
+                Log.write("[overlay] \(style.rawValue) finished on \(name)")
                 Task { @MainActor in
-                    self?.overlayWindows.removeAll { $0 === window }
+                    self?.alertWindows.removeAll { $0 === window }
+                    Log.write("[overlay] window released, \(self?.alertWindows.count ?? -1) still up")
                 }
             }
         }
+    }
+
+    private func celebrateAll() {
+        let calm = reduceMotion
+        for screen in NSScreen.screens {
+            let window = OverlayWindow(screen: screen) { frame in
+                SuccessRippleView(frame: frame, reduceMotion: calm)
+            }
+            celebrationWindows.append(window)
+            window.play { [weak self] in
+                Task { @MainActor in
+                    self?.celebrationWindows.removeAll { $0 === window }
+                }
+            }
+        }
+    }
+
+    /// Fades any in-flight alert. The windows still clean themselves up via
+    /// their `play` completion once the underlying animations finish.
+    private func dismissAlerts() {
+        alertWindows.forEach { $0.fadeOut() }
     }
 
     private func scheduleWatchdog(_ id: String) {
@@ -116,7 +222,7 @@ final class FlashController: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled, let self, !self.activeTriggers.isEmpty else { return }
-                self.pulseAll()
+                self.pulseAll(escalated: true)
             }
         }
     }

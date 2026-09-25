@@ -1,0 +1,66 @@
+#!/bin/bash
+#
+# Flash's global git hooks — optional, only for the activity log's "who did
+# it" (agent vs you). Folder watching already records *what* happened.
+#
+#   git config --global core.hooksPath <Flash.app>/Contents/Resources/git-hooks
+#
+# The catch with core.hooksPath: it *replaces* every repo's .git/hooks. So
+# every hook name in this folder forwards here, and this runs the repo's own
+# hook first — same args, same stdin, its exit code wins — before Flash
+# notes anything. Repos that set their own core.hooksPath (husky, lefthook)
+# override this global one and keep working; they just go unattributed.
+
+set -u
+
+name="$1"
+shift
+HERE="$(cd "$(dirname "$0")" && pwd)"
+NOTIFY="$HERE/../flash-notify"
+
+git_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || git_dir=""
+repo_hook="${git_dir:+$git_dir/hooks/$name}"
+
+run_repo_hook() {
+    [[ -n "$repo_hook" && -x "$repo_hook" ]] || return 0
+    "$repo_hook" "$@"
+}
+
+case "$name" in
+    post-commit)
+        run_repo_hook "$@"
+        status=$?
+        if [[ -x "$NOTIFY" ]]; then
+            "$NOTIFY" event=attrib sha="$(git rev-parse HEAD 2>/dev/null)" >/dev/null 2>&1
+        fi
+        exit "$status"
+        ;;
+
+    pre-push)
+        # We need the ref list too, so read stdin once and replay it.
+        input="$(cat)"
+        if [[ -n "$repo_hook" && -x "$repo_hook" ]]; then
+            if [[ -n "$input" ]]; then
+                printf '%s\n' "$input" | "$repo_hook" "$@" || exit $?
+            else
+                "$repo_hook" "$@" < /dev/null || exit $?
+            fi
+        fi
+        if [[ -x "$NOTIFY" && -n "$input" ]]; then
+            while read -r _local_ref local_sha _remote_ref _remote_sha; do
+                [[ -z "${local_sha:-}" || "$local_sha" =~ ^0+$ ]] && continue   # branch delete
+                "$NOTIFY" event=attrib sha="$local_sha" >/dev/null 2>&1
+            done <<< "$input"
+        fi
+        exit 0
+        ;;
+
+    *)
+        # Everything else: become the repo's hook (stdin, stdout, exit code
+        # untouched), or succeed quietly if it has none.
+        if [[ -n "$repo_hook" && -x "$repo_hook" ]]; then
+            exec "$repo_hook" "$@"
+        fi
+        exit 0
+        ;;
+esac
