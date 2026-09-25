@@ -3,3 +3,5 @@ build/
 Flash.app/
 .claude/
 dist/
+node_modules/
+package-lock.json

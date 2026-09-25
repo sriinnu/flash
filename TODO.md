@@ -6,7 +6,7 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
 
 **Build/run:** `make install` → `/Applications/Flash.app` · `make run` for terminal debugging
 **Logs:** `~/Library/Logs/Flash.log`
-**Icon:** `make icon` (regenerates from `tools/render_icon.swift`)
+**Icon:** `make icon` (renders `Resources/logo.svg` → `logo.png` + `Flash.icns`)
 
 ---
 

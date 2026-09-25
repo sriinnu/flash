@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Flash — master icon. Sriinnu's brief: looking at it should evoke awe.
+
+    The story, drawn literally: the tile is your screen. Two comets of
+    light race down its edges and collide at the bottom (the Comet alert),
+    and a bolt strikes toward that collision. Pure light on near-black;
+    depth comes from stacked glows, not from detail.
+
+    Grid: macOS Big Sur+ template — 824pt tile at (100,100), r=185, with
+    the standard soft drop shadow. Render: tools/render-logo.
+  -->
+  <defs>
+    <!-- Tile: night sky with a violet/rose nebula -->
+    <linearGradient id="tileFill" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#110c2e"/>
+      <stop offset="0.5" stop-color="#08071a"/>
+      <stop offset="1" stop-color="#04030b"/>
+    </linearGradient>
+    <radialGradient id="nebulaViolet" cx="760" cy="230" r="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6b3cff" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#6b3cff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="nebulaRose" cx="512" cy="900" r="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff3d7f" stop-opacity="0.46"/>
+      <stop offset="0.5" stop-color="#ff7a3d" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#ff7a3d" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Comet trails: invisible at the top, white-hot where they meet -->
+    <linearGradient id="comet" x1="0" y1="156" x2="0" y2="868" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7a5cff" stop-opacity="0"/>
+      <stop offset="0.35" stop-color="#9b5cff" stop-opacity="0.35"/>
+      <stop offset="0.7" stop-color="#ff4f9a" stop-opacity="0.9"/>
+      <stop offset="0.93" stop-color="#ffb36b" stop-opacity="1"/>
+      <stop offset="1" stop-color="#fff4e0" stop-opacity="1"/>
+    </linearGradient>
+
+    <radialGradient id="halo" cx="527" cy="520" r="340" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffb347" stop-opacity="0.26"/>
+      <stop offset="0.6" stop-color="#ff6a3d" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#ff6a3d" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Facets: the upper blade catches the light, the lower one turns
+         away from it, so the bolt reads as a twisted ribbon, not a sticker. -->
+    <linearGradient id="facetUpper" x1="598" y1="226" x2="420" y2="548" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.35" stop-color="#fff0a8"/>
+      <stop offset="1" stop-color="#ffc03a"/>
+    </linearGradient>
+    <linearGradient id="facetLower" x1="620" y1="452" x2="496" y2="836" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffb02e"/>
+      <stop offset="0.55" stop-color="#ff7a2e"/>
+      <stop offset="1" stop-color="#ff3f7a"/>
+    </linearGradient>
+    <!-- Bolt: white-hot top, gold body, rose tip that matches the comets -->
+    <linearGradient id="boltFill" x1="598" y1="226" x2="496" y2="836" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffdf2"/>
+      <stop offset="0.28" stop-color="#ffe27a"/>
+      <stop offset="0.62" stop-color="#ffa62b"/>
+      <stop offset="1" stop-color="#ff4f7a"/>
+    </linearGradient>
+    <linearGradient id="boltSheen" x1="380" y1="240" x2="640" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.75"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Collision flare -->
+    <radialGradient id="flare" cx="512" cy="868" r="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="0.12" stop-color="#fff1d6" stop-opacity="0.95"/>
+      <stop offset="0.35" stop-color="#ff9a4a" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ff4f9a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rayH" x1="252" y1="0" x2="772" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <filter id="blurS" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="blurM" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="blurL" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="42"/></filter>
+    <filter id="tileShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dy="12"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <clipPath id="tileClip"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+
+    <!-- Screen edge, split at top-centre so each comet owns one side -->
+    <path id="railRight" d="M512 156 H733 A135 135 0 0 1 868 291 V733 A135 135 0 0 1 733 868 H512"/>
+    <path id="railLeft"  d="M512 156 H291 A135 135 0 0 0 156 291 V733 A135 135 0 0 0 291 868 H512"/>
+    <!-- Tip at (496,836): it lands on the comets' collision point. -->
+    <polygon id="bolt" points="598,226 390,548 506,548 496,836 664,452 548,452"/>
+    <polygon id="boltUpper" points="598,226 390,548 506,548 548,452"/>
+    <polygon id="boltLower" points="506,548 496,836 664,452 548,452"/>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tileFill)" filter="url(#tileShadow)"/>
+
+  <g clip-path="url(#tileClip)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#nebulaViolet)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#nebulaRose)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#halo)"/>
+
+    <!-- Starfield: a few specks for depth, kept away from the bolt -->
+    <g fill="#ffffff">
+      <circle cx="248" cy="232" r="2.4" opacity="0.55"/>
+      <circle cx="318" cy="352" r="1.6" opacity="0.4"/>
+      <circle cx="770" cy="262" r="2" opacity="0.5"/>
+      <circle cx="712" cy="360" r="1.4" opacity="0.35"/>
+      <circle cx="236" cy="628" r="1.6" opacity="0.35"/>
+      <circle cx="800" cy="602" r="2.2" opacity="0.45"/>
+      <circle cx="660" cy="214" r="1.3" opacity="0.4"/>
+      <circle cx="380" cy="700" r="1.3" opacity="0.3"/>
+      <circle cx="286" cy="470" r="1.1" opacity="0.3"/>
+      <circle cx="742" cy="470" r="1.2" opacity="0.3"/>
+    </g>
+
+    <!-- Screen edge: faint full rail so the tile reads as a display -->
+    <rect x="156" y="156" width="712" height="712" rx="135" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="6"/>
+
+    <!-- Comets: wide bloom, glow, then the bright core line -->
+    <g fill="none" stroke="url(#comet)" stroke-linecap="round">
+      <g filter="url(#blurL)" stroke-width="40" opacity="0.5">
+        <use href="#railRight"/><use href="#railLeft"/>
+      </g>
+      <g filter="url(#blurM)" stroke-width="18">
+        <use href="#railRight"/><use href="#railLeft"/>
+      </g>
+      <g stroke-width="7">
+        <use href="#railRight"/><use href="#railLeft"/>
+      </g>
+    </g>
+
+    <!-- Collision flare -->
+    <circle cx="512" cy="868" r="210" fill="url(#flare)"/>
+    <!-- Impact: light splashing along the "floor" of the screen -->
+    <ellipse cx="512" cy="866" rx="170" ry="26" fill="none" stroke="#ffd9b0" stroke-width="5" opacity="0.45" filter="url(#blurS)"/>
+    <ellipse cx="512" cy="868" rx="260" ry="9" fill="url(#rayH)" opacity="0.8" filter="url(#blurS)"/>
+    <ellipse cx="512" cy="868" rx="230" ry="3" fill="url(#rayH)"/>
+    <circle cx="512" cy="868" r="15" fill="#ffffff" filter="url(#blurS)"/>
+    <circle cx="512" cy="868" r="7" fill="#ffffff"/>
+
+    <!-- Bolt: two glows, body, sheen, crisp rim -->
+    <use href="#bolt" fill="#ff7a3d" filter="url(#blurL)" opacity="0.85"/>
+    <use href="#bolt" fill="#ffc64a" filter="url(#blurM)" opacity="0.9"/>
+    <use href="#boltLower" fill="url(#facetLower)" stroke="url(#facetLower)" stroke-width="12" stroke-linejoin="round"/>
+    <use href="#boltUpper" fill="url(#facetUpper)" stroke="url(#facetUpper)" stroke-width="12" stroke-linejoin="round"/>
+    <use href="#bolt" fill="url(#boltSheen)" opacity="0.6"/>
+    <!-- White-hot core: the spine of the strike -->
+    <polyline points="590,250 424,530 520,530 502,800" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.55" filter="url(#blurS)"/>
+  </g>
+
+  <!-- Glass edge: a hairline of light on the tile's rim -->
+  <rect x="101.5" y="101.5" width="821" height="821" rx="184" fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="3"/>
+</svg>

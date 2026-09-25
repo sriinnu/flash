@@ -7,7 +7,7 @@ This is a menu-bar-only macOS app written in Swift, using AppKit and SwiftUI. It
 ```sh
 make run       # build, bundle, run in the foreground; logs stream to the terminal
 make install   # build + replace /Applications/Flash.app (kills the running copy)
-make icon      # regenerate Resources/Flash.icns from tools/render_icon.swift
+make icon      # Resources/logo.svg → logo.png + Flash.icns (needs: npm i --no-save playwright-core)
 make release   # universal, signed dmg + zip in dist/ (see Releasing)
 make selftest  # guided test of every detection path, needs Flash running
 make clean
@@ -69,6 +69,8 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 | `tools/flash-notify` | The one client for the inbox; works out agent vs you from the process tree |
 | `tools/flash-askpass` | `core.askPass` / `SSH_ASKPASS`: flashes, then asks through a dialog |
 | `tools/git-hooks/` | Optional global hooks: forward to the repo's own hooks, then report who made the change |
+| `Resources/logo.svg` | Icon master. The screen tile, two comets colliding at the bottom, a bolt striking the collision point. `logo.png` and `Flash.icns` are rendered from it |
+| `tools/render-logo.mjs` | SVG → PNG + `.icns` through headless Chrome (every size rendered from the vector) |
 | `tools/release.sh` | Release pipeline (build → sign → notarize → dmg/zip → GitHub) |
 | `tools/flash-selftest` | `make selftest`: triggers each detection path for real, records pass/fail |
 

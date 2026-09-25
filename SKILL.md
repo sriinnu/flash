@@ -46,6 +46,10 @@ Point `gpg.ssh.program` at `/Applications/Flash.app/Contents/Resources/git-ssh-k
 - **Attribution:** `git config --global core.hooksPath …/git-hooks` (optional; forwards to repo hooks).
 - **Protocol:** `SIGUSR1` before signing, exit code written to `$TMPDIR/flash-signing-result`, then `SIGUSR2`. If you change it, change both `tools/git-ssh-keygen-flash` and `SignTrigger.swift`.
 
+## Icon
+
+`Resources/logo.svg` is the source of truth; edit it, then `make icon` to re-render `logo.png` and `Flash.icns` (commit all three). The icon depicts the product: the tile is the screen, the comets collide at the bottom, and the bolt strikes that point. Keep that story if you change it.
+
 ## Releasing
 
 To release: bump the plist, commit, then `git tag vX.Y && git push origin vX.Y`. `.github/workflows/release.yml` runs `tools/release.sh --publish`. The signing and notarization secrets are listed in DEVELOPMENT.md → Releasing. Never commit `.p12` or `.p8` files.
