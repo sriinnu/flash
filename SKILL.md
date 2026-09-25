@@ -17,6 +17,7 @@ The full developer guide is in `DEVELOPMENT.md`. The user-facing setup is in `RE
 ## Build and verify
 
 - It only builds on macOS: `make run` builds, bundles and runs in the foreground. On Linux there's no AppKit or `codesign`, so say plainly that the change is **uncompiled** and give the user the exact commands to verify it.
+- Detection changes: `make selftest` (or `make selftest STEP=N`) with Flash running. It triggers each path for real and asks the user what they saw.
 - Manual check after UI or effect changes: menu-bar panel → **Test flash** with each style, **Test success**, Settings → **Preview**, then Classic with Reduce Motion on.
 - Scripts: `bash -n` + `shellcheck` on `tools/*.sh` and `tools/git-ssh-keygen-flash`. They have to stay bash 3.2 compatible.
 
@@ -25,6 +26,8 @@ The full developer guide is in `DEVELOPMENT.md`. The user-facing setup is in `RE
 - No third-party dependencies. Main-actor work goes through `FlashController` (`@MainActor`). From AppKit or SwiftUI callbacks, hop with `Task { @MainActor in … }`, the same way the existing code does.
 - Comments explain *why*, in the owner's voice. Where a person would be named, the name is "Sriinnu".
 - New alert styles need a distinct *motion*, not just a new colour (see DEVELOPMENT.md → Adding an alert style).
+- Colour presets pair two *different* hues; two shades of one hue read as flat. Keep the original raw values (`amber`, `cyan`, `magenta`, `lime`) stable, since they're saved settings.
+- Settings keeps its fixed-size tabs (`SettingsView.windowSize`). New settings go into a tab, not a longer page.
 - Keep model layer values invisible after an animation. Wrap effects in `runTransaction` so the window orders out on completion.
 - Version comes only from `Resources/Info.plist` → `CFBundleShortVersionString`. Tags are `v<version>`.
 - Commits: no `Co-Authored-By` or other AI-attribution trailers.

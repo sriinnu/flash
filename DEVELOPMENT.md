@@ -54,7 +54,7 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 | `FlashOverlay.swift` | `OverlayWindow`, `OverlayView` base + shared helpers, `BorderGeometry`, Classic, Comet, SuccessRipple |
 | `AlertEffects.swift` | Marquee, Target lock, Heartbeat |
 | `MenuPanelView.swift` | Left-click popover |
-| `SettingsView.swift` | Settings window, `StyleTile`, `Swatch` |
+| `SettingsView.swift` | Tabbed Settings (Alerts / Detection / About), `StyleTile`, `Swatch` |
 | `Settings.swift` | `FlashColor`, `AlertStyle`, `ReminderInterval`, `FlashSettings` (UserDefaults) |
 | `WatchManager.swift` | Starts and stops every detection engine as one; pause state |
 | `FidoSniffer.swift` | IOHID manager on usage page `0xF1D0`, CTAPHID parser |
@@ -70,6 +70,7 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 | `tools/flash-askpass` | `core.askPass` / `SSH_ASKPASS`: flashes, then asks through a dialog |
 | `tools/git-hooks/` | Optional global hooks: forward to the repo's own hooks, then report who made the change |
 | `tools/release.sh` | Release pipeline (build → sign → notarize → dmg/zip → GitHub) |
+| `tools/flash-selftest` | `make selftest`: triggers each detection path for real, records pass/fail |
 
 ### Detection notes
 
@@ -124,7 +125,7 @@ Without them, the release still ships ad-hoc signed, and the notes tell users ho
 - **Finder caches app icons.** After `make icon`, reinstall and `killall Finder`.
 - **The singleton guard exits a second instance at launch.** If `make run` seems to quit instantly, a launch-at-login copy is already running: `pkill -x Flash`.
 - **TCC grants bind to the code signature.** Expect one re-grant when switching between ad-hoc and Developer ID builds.
-- **The Settings window sizes from `NSHostingView.fittingSize`.** Keep `SettingsView` built from plain stacks, not a grouped `Form`, which reports no real height.
+- **Settings has a fixed size.** `SettingsView.windowSize` is 460 × min(560, screen − 80). Content goes into the Alerts / Detection / About tabs, each of which scrolls. Don't go back to sizing the window from SwiftUI's measured height: it overflowed laptop screens.
 - **Accessory apps aren't active by default.** The popover calls `NSApp.activate` first, or ⌘-shortcuts and click-outside-to-close misbehave.
 - **macOS ships bash 3.2.** Scripts avoid bash 4 features and guard empty array expansions under `set -u`.
 

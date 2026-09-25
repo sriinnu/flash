@@ -53,7 +53,7 @@ git config --global core.hooksPath "$R/git-hooks"
 |---|---|
 | Left-click icon | Status, touches today, recent activity, style switcher, tests |
 | Right-click icon | Plain menu |
-| Settings (⌘,) | Alert style + colour, reminders, detection, watched folders |
+| Settings (⌘,) | **Alerts** (style, 13 colours, reminders) · **Detection** (prompts, ssh, activity folders) · **About** |
 | Logs | `~/Library/Logs/Flash.log` |
 
 ## Build
@@ -61,6 +61,7 @@ git config --global core.hooksPath "$R/git-hooks"
 ```sh
 make run       # build + run in the foreground, logs to the terminal
 make install   # → /Applications/Flash.app
+make selftest  # with Flash running: triggers every detection path, pass/fail per step
 ```
 
 Architecture, adding alert styles and releasing are covered in [DEVELOPMENT.md](DEVELOPMENT.md).
