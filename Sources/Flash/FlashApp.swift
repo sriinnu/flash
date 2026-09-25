@@ -198,18 +198,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // contentViewController route rendered blank — overriding
             // styleMask right after that convenience initializer likely
             // fought its own auto-sizing rather than adding to it.
-            let hostingView = NSHostingView(rootView: SettingsView())
-            let size = hostingView.fittingSize
+            //
+            // Sriinnu: the full panel is taller than a laptop screen, so
+            // measure it unscrolled (plain stacks report an honest height),
+            // then host a scrolling copy in a window capped to the visible
+            // area. Resizable vertically, never taller than the content.
+            let full = NSHostingView(rootView: SettingsView()).fittingSize
+            let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+                ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            let height = min(full.height, visible.height - 60)
+            let size = NSSize(width: full.width, height: height)
+
+            let hostingView = NSHostingView(rootView: ScrollView { SettingsView() })
+            // We own the window size; don't let SwiftUI's ideal size (tiny,
+            // for a ScrollView) resize it underneath us.
+            hostingView.sizingOptions = []
+
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size),
-                styleMask: [.titled, .closable],
+                styleMask: [.titled, .closable, .resizable],
                 backing: .buffered,
                 defer: false
             )
             window.title = "Flash Settings"
             window.contentView = hostingView
+            window.contentMinSize = NSSize(width: full.width, height: min(360, height))
+            window.contentMaxSize = NSSize(width: full.width, height: full.height)
             window.isReleasedWhenClosed = false
-            window.center()
+            // Explicit centring inside the visible frame. `center()` sits the
+            // window above centre, which pushes a near-full-height one
+            // under the Dock.
+            let frame = window.frame
+            window.setFrameOrigin(NSPoint(
+                x: visible.midX - frame.width / 2,
+                y: visible.minY + (visible.height - frame.height) / 2
+            ))
             settingsWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)

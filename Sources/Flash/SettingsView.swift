@@ -362,8 +362,11 @@ private struct Row<Control: View>: View {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        // Wrap, don't truncate: hints are the point.
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .layoutPriority(1)
             Spacer(minLength: 12)
             control
         }

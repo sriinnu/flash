@@ -45,7 +45,7 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
       SSH_ASKPASS_REQUIRE=force and no DISPLAY.
 - [x] **Activity log** (built, untested) — FSEvents on reflogs + optional global hooks for
       attribution. Hook forwarding verified on Linux git (repo hooks still block).
-- [ ] Settings window height with the new Detection card on 13" screens — may need scrolling.
+- [x] Settings window capped to the visible screen, content scrolls (was running under the Dock).
 - [ ] ~~GUI password-dialog watcher~~ superseded by the auth-prompt watcher above (task #5)
       AX observer on new windows system-wide; trigger when window contains `AXSecureTextField`.
       Needs Accessibility permission (one-time grant, add onboarding prompt + deep link to
