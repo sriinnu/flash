@@ -9,6 +9,7 @@ make run       # build, bundle, run in the foreground; logs stream to the termin
 make install   # build + replace /Applications/Flash.app (kills the running copy)
 make icon      # regenerate Resources/Flash.icns from tools/render_icon.swift
 make release   # universal, signed dmg + zip in dist/ (see Releasing)
+make selftest  # guided test of every detection path, needs Flash running
 make clean
 ```
 

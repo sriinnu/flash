@@ -57,7 +57,11 @@ release:
 publish:
 	tools/release.sh --publish
 
+# Guided test of every detection path (needs Flash running). Step N only: make selftest STEP=N
+selftest:
+	tools/flash-selftest $(STEP)
+
 clean:
 	rm -rf .build $(APP) dist
 
-.PHONY: build bundle run open-app release publish clean
+.PHONY: build bundle run open-app release publish selftest clean
