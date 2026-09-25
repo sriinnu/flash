@@ -45,6 +45,10 @@ release:
 publish:
 	tools/release.sh --publish
 
+# Render the Homebrew cask for the built release (dist/ must exist). CI publishes it.
+cask:
+	tools/update-cask.sh --print
+
 # Guided test of every detection path (needs Flash running). Step N only: make selftest STEP=N
 selftest:
 	tools/flash-selftest $(STEP)
@@ -52,4 +56,4 @@ selftest:
 clean:
 	rm -rf .build $(APP) dist
 
-.PHONY: build bundle run open-app icon release publish selftest clean
+.PHONY: build bundle run open-app icon release publish cask selftest clean

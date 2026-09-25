@@ -13,6 +13,9 @@
 #   NOTARY_KEY_P8_BASE64      base64 of the App Store Connect API key (AuthKey_XXXX.p8)
 #   NOTARY_KEY_ID             that key's Key ID
 #   NOTARY_ISSUER             Issuer ID from the same App Store Connect page
+#   HOMEBREW_TAP_TOKEN        fine-grained PAT, Contents: read & write on
+#                             sriinnu/homebrew-tap only. Without it the cask
+#                             step is skipped.
 
 name: Release
 
@@ -31,6 +34,7 @@ jobs:
       # Step-level `if:` can't see secrets, so resolve "is it configured?" once here.
       HAS_P12: ${{ secrets.DEVELOPER_ID_P12_BASE64 != '' }}
       HAS_P8: ${{ secrets.NOTARY_KEY_P8_BASE64 != '' }}
+      HAS_TAP: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,6 +80,13 @@ jobs:
           else
             tools/release.sh
           fi
+
+      # Only after a real, published release: the cask points at its dmg.
+      - name: Update Homebrew tap
+        if: github.ref_type == 'tag' && env.HAS_TAP == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: tools/update-cask.sh
 
       - name: Keep artifacts on the run
         if: always()

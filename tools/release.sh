@@ -119,7 +119,18 @@ fi
 
 notarize() {  # $1 = file to submit
     say "notarizing $(basename "$1") — usually a few minutes"
-    xcrun notarytool submit "$1" "${NOTARY_ARGS[@]}" --wait
+    local out id status
+    out="$(xcrun notarytool submit "$1" "${NOTARY_ARGS[@]}" --wait --output-format json)" || true
+    id="$(printf '%s' "$out" | sed -n 's/.*"id" *: *"\([^"]*\)".*/\1/p')"
+    status="$(printf '%s' "$out" | sed -n 's/.*"status" *: *"\([^"]*\)".*/\1/p')"
+    if [[ "$status" != "Accepted" ]]; then
+        # The submit output only says "Invalid"; the log says *why*
+        # (unsigned binary, missing hardened runtime, bad timestamp…).
+        echo "$out" >&2
+        [[ -n "$id" ]] && xcrun notarytool log "$id" "${NOTARY_ARGS[@]}" >&2
+        die "notarization ${status:-failed} for $(basename "$1")"
+    fi
+    say "notarized ✓ ($id)"
 }
 
 NOTARIZED=0
@@ -130,6 +141,9 @@ if [[ $SIGNED -eq 1 && $CAN_NOTARIZE -eq 1 ]]; then
     notarize "$DIST/notarize.zip"
     rm "$DIST/notarize.zip"
     xcrun stapler staple "$APP"
+    xcrun stapler validate "$APP"
+    # What a user's Mac will decide on first launch: must say "Notarized Developer ID".
+    spctl --assess --type execute -vv "$APP"
     NOTARIZED=1
 elif [[ $SIGNED -eq 1 ]]; then
     say "no notary credentials — signed but not notarized"
@@ -153,6 +167,7 @@ fi
 if [[ $NOTARIZED -eq 1 ]]; then
     notarize "$DMG"
     xcrun stapler staple "$DMG"
+    xcrun stapler validate "$DMG"
 fi
 
 ( cd "$DIST" && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")" > SHA256SUMS )

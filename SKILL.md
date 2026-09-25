@@ -52,4 +52,4 @@ Point `gpg.ssh.program` at `/Applications/Flash.app/Contents/Resources/git-ssh-k
 
 ## Releasing
 
-To release: bump the plist, commit, then `git tag vX.Y && git push origin vX.Y`. `.github/workflows/release.yml` runs `tools/release.sh --publish`. The signing and notarization secrets are listed in DEVELOPMENT.md → Releasing. Never commit `.p12` or `.p8` files.
+To release: bump the plist, commit, then `git tag vX.Y && git push origin vX.Y`. `.github/workflows/release.yml` runs `tools/release.sh --publish`, then `tools/update-cask.sh` updates `sriinnu/homebrew-tap`. `main` requires signed commits, so merge PRs by squash (GitHub signs the squash commit). The signing and notarization secrets are listed in DEVELOPMENT.md → Releasing. Never commit `.p12` or `.p8` files.

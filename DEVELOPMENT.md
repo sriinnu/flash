@@ -71,6 +71,7 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 | `tools/git-hooks/` | Optional global hooks: forward to the repo's own hooks, then report who made the change |
 | `Resources/logo.svg` | Icon master. The screen tile, two comets colliding at the bottom, a bolt striking the collision point. `logo.png` and `Flash.icns` are rendered from it |
 | `tools/render-logo.mjs` | SVG → PNG + `.icns` through headless Chrome (every size rendered from the vector) |
+| `tools/update-cask.sh` + `packaging/homebrew/` | Homebrew cask template → `sriinnu/homebrew-tap` |
 | `tools/release.sh` | Release pipeline (build → sign → notarize → dmg/zip → GitHub) |
 | `tools/flash-selftest` | `make selftest`: triggers each detection path for real, records pass/fail |
 
@@ -119,6 +120,10 @@ CI refuses a tag that doesn't match the plist. Running the workflow manually (*A
 |---|---|---|
 | Local | `DEVELOPER_ID="Developer ID Application: Name (TEAMID)"` | `NOTARY_PROFILE=<name>` from `xcrun notarytool store-credentials` |
 | GitHub secrets | `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`, `DEVELOPER_ID` | `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` |
+
+**Notarization** fails loudly. On a rejection, `release.sh` prints Apple's log with the exact reasons. On success it staples, runs `stapler validate`, and runs `spctl --assess`, which should say "Notarized Developer ID".
+
+**Homebrew.** After a tagged release publishes, CI runs `tools/update-cask.sh`. It renders `packaging/homebrew/flash.rb.template` with the version and the dmg's sha256, then writes `Casks/flash.rb` to `sriinnu/homebrew-tap` through the GitHub contents API, so the commit is GitHub-signed. It needs the `HOMEBREW_TAP_TOKEN` secret: a fine-grained PAT with Contents: read & write on the tap repo only. Preview locally with `make cask`.
 
 Without them, the release still ships ad-hoc signed, and the notes tell users how to approve the first launch.
 

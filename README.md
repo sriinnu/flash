@@ -23,7 +23,11 @@ It also keeps an **activity log** of commits and successful pushes, with agent v
 
 ## Install
 
-Download `Flash-x.y.dmg` from [Releases](https://github.com/sriinnu/flash/releases) and drag it to Applications. If macOS blocks the first launch: **System Settings → Privacy & Security → Open Anyway**.
+```sh
+brew install --cask sriinnu/tap/flash
+```
+
+Or download `Flash-x.y.dmg` from [Releases](https://github.com/sriinnu/flash/releases) and drag it to Applications. Releases are signed and notarized by Apple.
 
 ## Git setup (optional, pick what you need)
 
