@@ -85,7 +85,8 @@ cp "$PLIST_SRC" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$APP/Contents/Info.plist"
 cp Resources/Flash.icns "$APP/Contents/Resources/Flash.icns"
 # Ships inside the bundle so dmg users can point git at it — see README.
-cp tools/git-ssh-keygen-flash "$APP/Contents/Resources/git-ssh-keygen-flash"
+cp tools/git-ssh-keygen-flash tools/flash-notify tools/flash-askpass "$APP/Contents/Resources/"
+cp -R tools/git-hooks "$APP/Contents/Resources/git-hooks"
 
 # ── 3. Sign ─────────────────────────────────────────────────────────────
 # macOS ships bash 3.2, where "${empty[@]}" trips `set -u` — hence the

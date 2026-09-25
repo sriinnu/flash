@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingController(rootView: MenuPanelView(
             flash: FlashController.shared,
             watch: WatchManager.shared,
+            activity: ActivityLog.shared,
             openSettings: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.openSettings()
@@ -94,6 +95,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.updateStatus(running: running, state: state)
             }
             .store(in: &cancellables)
+
+        // Exists from first launch so flash-notify can tell Flash is installed,
+        // even while watching is paused.
+        EventInbox.ensureDirectory()
+        if FlashSettings.shared.routeSSHPrompts {
+            SSHPromptRouting.apply(enabled: true)   // launchd forgot it at reboot
+        }
 
         // Start the engines if the user left them on.
         if WatchManager.shared.enabledPreference {

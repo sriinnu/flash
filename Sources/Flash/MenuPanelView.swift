@@ -14,13 +14,20 @@ import SwiftUI
 ///   │ [⇉] [◌] [⌖] [∿] [⚡]          │
 ///   │ [▶ Test flash] [✓ Test succ] │
 ///   ├──────────────────────────────┤
+///   │ RECENT                 Clear │  commits / pushes / prompts,
+///   │ ↑ Pushed origin/main  Claude │  who did it when hooks know
+///   ├──────────────────────────────┤
 ///   │ ⚙ Settings…              ⌘,  │
 ///   │ ⏻ Quit Flash             ⌘Q  │
 ///   └──────────────────────────────┘
+// @MainActor explicitly: helper properties read @MainActor state, and only
+// `body` is main-actor by default on pre-macOS-15 SDKs.
+@MainActor
 struct MenuPanelView: View {
 
     @ObservedObject var flash: FlashController
     @ObservedObject var watch: WatchManager
+    @ObservedObject var activity: ActivityLog
     let openSettings: () -> Void
     let quit: () -> Void
 
@@ -37,6 +44,9 @@ struct MenuPanelView: View {
                 .padding(.vertical, 10)
             Divider()
             quickStyle
+                .padding(14)
+            Divider()
+            recentActivity
                 .padding(14)
             Divider()
             VStack(spacing: 2) {
@@ -179,6 +189,116 @@ struct MenuPanelView: View {
                 .buttonStyle(.bordered)
             }
         }
+    }
+}
+
+// MARK: - Recent activity
+
+extension MenuPanelView {
+
+    /// Oversight, not alerting: what agents (and you) did with your repos,
+    /// plus which prompts fired. Five newest; the log keeps 50.
+    var recentActivity: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("RECENT")
+                    .font(.caption.weight(.semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !activity.events.isEmpty {
+                    Button("Clear") { activity.clear() }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if activity.events.isEmpty {
+                Text("Commits, pushes and prompts from your watched folders show up here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(activity.events.prefix(5)) { event in
+                    ActivityRow(event: event)
+                }
+            }
+        }
+    }
+}
+
+private struct ActivityRow: View {
+    let event: ActivityEvent
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 16)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(event.summary)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            if event.actor != .unknown {
+                ActorChip(actor: event.actor)
+            }
+        }
+    }
+
+    private var symbol: String {
+        switch event.kind {
+        case .commit: return "checkmark.circle.fill"
+        case .push: return "arrow.up.circle.fill"
+        case .prompt: return "key.fill"
+        }
+    }
+
+    private var tint: Color {
+        switch event.kind {
+        case .commit: return .secondary
+        case .push: return .accentColor
+        case .prompt: return .orange
+        }
+    }
+
+    /// "flash · main · 4m ago"
+    private var detail: String {
+        let when = event.date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))
+        let place: [String] = [event.repo, event.kind == .commit ? event.ref : nil].compactMap { $0 }
+        return (place + [when]).joined(separator: " · ")
+    }
+}
+
+private struct ActorChip: View {
+    let actor: Actor
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: actor.isAgent ? "sparkles" : "person.fill")
+                .font(.system(size: 9, weight: .bold))
+            Text(actor.label)
+                .font(.caption2.weight(.medium))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .foregroundStyle(actor.isAgent ? Color.purple : Color.secondary)
+        .background(
+            Capsule().fill((actor.isAgent ? Color.purple : Color.primary).opacity(0.12))
+        )
     }
 }
 

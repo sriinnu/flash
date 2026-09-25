@@ -1,0 +1,70 @@
+#!/bin/bash
+#
+# flash-notify — hand Flash one event. Everything outside the app talks to
+# it through this: flash-askpass, the git hooks, your own scripts.
+#
+#   flash-notify event=prompt.begin id=42 kind=password
+#   flash-notify event=prompt.end   id=42 ok=1
+#   flash-notify event=attrib       sha=<full sha>
+#
+# It writes a small key=value file into Flash's inbox folder and exits. If
+# Flash has never run on this Mac (no inbox), it does nothing — callers never
+# have to care whether Flash is installed.
+#
+# It also works out *who* is asking, by walking up the process tree:
+#   actor=agent  when CLAUDECODE is set or an ancestor looks like an agent CLI
+#                (or the Claude desktop app)
+#   actor=you    otherwise; app= is the .app it came from (Ghostty, Terminal…)
+
+set -u
+
+INBOX="${FLASH_INBOX:-$HOME/Library/Application Support/Flash/inbox}"
+[[ -d "$INBOX" ]] || exit 0
+
+actor=you
+agent=""
+app=""
+if [[ -n "${CLAUDECODE:-}" ]]; then
+    actor=agent
+    agent=Claude
+fi
+
+# One `ps` for the whole table, then walk it in awk. Per-level `ps` calls
+# cost ~10ms each, which a post-commit hook would feel.
+chain="$(ps -A -o pid=,ppid=,comm= 2>/dev/null | awk -v start="$PPID" '
+    { pid = $1; parent[pid] = $2; $1 = ""; $2 = ""; sub(/^ +/, ""); comm[pid] = $0 }
+    END {
+        p = start
+        for (i = 0; i < 40 && p > 1 && (p in comm); i++) { print comm[p]; p = parent[p] }
+    }')"
+
+while IFS= read -r comm; do
+    [[ -n "$comm" ]] || continue
+    base="${comm##*/}"
+    lower="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$actor" != agent ]]; then
+        case "$lower" in
+            claude*|codex*|aider*|cursor-agent*|gemini*|goose*|opencode*)
+                actor=agent
+                agent="$base"
+                ;;
+        esac
+    fi
+    if [[ -z "$app" && "$comm" == *.app/Contents/MacOS/* ]]; then
+        app="${comm%%.app/*}"
+        app="${app##*/}"
+    fi
+done <<< "$chain"
+
+ts="$(date +%s)"
+tmp="$(mktemp "$INBOX/.tmp.XXXXXX" 2>/dev/null)" || exit 0
+{
+    printf 'ts=%s\nactor=%s\nagent=%s\napp=%s\n' "$ts" "$actor" "$agent" "$app"
+    for kv in "$@"; do
+        [[ "$kv" == *=* ]] || continue
+        # One event field per line — fold any newlines the caller passed.
+        printf '%s\n' "$(printf '%s' "$kv" | tr '\n\r' '  ')"
+    done
+} > "$tmp"
+mv -f "$tmp" "$INBOX/$ts-$$-$RANDOM.event" 2>/dev/null || rm -f "$tmp"
+exit 0

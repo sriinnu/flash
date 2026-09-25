@@ -122,4 +122,50 @@ final class FlashSettings {
         let n = defaults.integer(forKey: "flashCount")
         return n == 0 ? 4 : n
     }
+
+    // MARK: Detection
+
+    /// Keychain / password / Touch ID / GPG PIN dialogs. Defaults on.
+    var watchAuthPrompts: Bool {
+        defaults.object(forKey: "watchAuthPrompts") as? Bool ?? true
+    }
+
+    /// ssh passphrase / PIN / key-touch prompts via flash-askpass, set in
+    /// launchd's environment. Off by default: it changes how every ssh on
+    /// the Mac asks for secrets (dialogs instead of the terminal).
+    var routeSSHPrompts: Bool {
+        defaults.bool(forKey: "routeSSHPrompts")
+    }
+
+    /// Commit / push log in the menu-bar panel. Defaults on.
+    var activityLogEnabled: Bool {
+        defaults.object(forKey: "activityLog") as? Bool ?? true
+    }
+
+    /// Folders whose git repos feed the activity log. Unset → whichever of
+    /// the usual code folders exist, so it works before anyone opens Settings.
+    var watchRoots: [String] {
+        get { defaults.stringArray(forKey: "watchRoots") ?? Self.defaultRoots }
+        set { defaults.set(Self.normalized(newValue), forKey: "watchRoots") }
+    }
+
+    static var defaultRoots: [String] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        // One spelling each: APFS is usually case-insensitive, so "Code" and
+        // "code" would be the same folder watched twice.
+        let candidates = ["code", "Developer", "Projects", "src", "dev", "work", "repos", "GitHub"]
+        return normalized(candidates.map { "\(home)/\($0)" }.filter {
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: $0, isDirectory: &isDir) && isDir.boolValue
+        })
+    }
+
+    /// Dedupe, and drop any root nested inside another — FSEvents would
+    /// report the same file once per overlapping root.
+    static func normalized(_ roots: [String]) -> [String] {
+        let unique = Array(Set(roots.map { ($0 as NSString).standardizingPath })).sorted()
+        return unique.filter { root in
+            !unique.contains { other in other != root && root.hasPrefix(other + "/") }
+        }
+    }
 }

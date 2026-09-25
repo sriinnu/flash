@@ -1,0 +1,83 @@
+#!/bin/bash
+#
+# flash-askpass — make "git is waiting on you" impossible to miss.
+#
+# When an agent's `git push` needs a password, passphrase or key touch, the
+# prompt normally goes to a terminal nobody is watching and everything just
+# hangs. Plugged in as git's and ssh's askpass program, this flashes the
+# screen and asks through a real dialog instead.
+#
+#   git config --global core.askPass <this file>          # HTTPS credentials
+#   SSH_ASKPASS=<this file> SSH_ASKPASS_REQUIRE=force     # ssh passphrases,
+#                                                         # PINs, key touches
+#
+# Modes (chosen by ssh through SSH_ASKPASS_PROMPT):
+#   none     not a question: "Confirm user presence for key …". Flash
+#            alerts until ssh kills us, which it does once the key is touched.
+#   confirm  yes/no: Allow / Cancel dialog, the exit status is the answer.
+#   (unset)  a question: dialog, the answer goes to stdout. Secrets stay
+#            hidden and never go anywhere near Flash's log.
+
+set -u
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+prompt="${1:-Git is waiting on you}"
+id="$$-$(date +%s)"
+
+notify() {
+    [[ -x "$HERE/flash-notify" ]] && "$HERE/flash-notify" "$@" >/dev/null 2>&1
+    return 0
+}
+
+lower="$(printf '%s' "$prompt" | tr '[:upper:]' '[:lower:]')"
+kind=secret
+hidden=1
+case "$lower" in
+    *passphrase*)                     kind=ssh-passphrase ;;
+    *" pin"*|pin*)                    kind=pin ;;
+    *password*)                       kind=password ;;
+    *username*)                       kind=username; hidden=0 ;;
+    *"continue connecting"*|*yes/no*) kind=confirm; hidden=0 ;;
+esac
+
+# ── Notification: key touch ──────────────────────────────────────────────
+if [[ "${SSH_ASKPASS_PROMPT:-}" == "none" ]]; then
+    # Trap first: ssh can TERM us (touch landed) at any moment, and a missed
+    # prompt.end leaves the alert up until Flash's 45s watchdog.
+    sleeper=""
+    trap 'kill ${sleeper:-} 2>/dev/null; notify event=prompt.end id="$id" ok=1; exit 0' TERM INT HUP
+    notify event=prompt.begin id="$id" kind=touch
+    sleep 120 &
+    sleeper=$!
+    wait "$sleeper"
+    notify event=prompt.end id="$id" ok=0
+    exit 0
+fi
+
+# AppleScript string literal: escape backslashes and quotes, keep line breaks.
+esc="$(printf '%s' "$prompt" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')"
+title="Flash — git is waiting on you"
+
+notify event=prompt.begin id="$id" kind="$kind"
+
+# ── Confirm: yes / no ────────────────────────────────────────────────────
+if [[ "${SSH_ASKPASS_PROMPT:-}" == "confirm" ]]; then
+    osascript -e "display dialog \"$esc\" with title \"$title\" buttons {\"Cancel\", \"Allow\"} default button \"Allow\" with icon caution" >/dev/null 2>&1
+    code=$?
+    notify event=prompt.end id="$id" ok="$([[ $code -eq 0 ]] && echo 1 || echo 0)"
+    exit "$code"
+fi
+
+# ── Question: answer on stdout ───────────────────────────────────────────
+hide=""
+[[ $hidden -eq 1 ]] && hide=" with hidden answer"
+answer="$(osascript -e "text returned of (display dialog \"$esc\" with title \"$title\" default answer \"\"$hide buttons {\"Cancel\", \"OK\"} default button \"OK\" with icon note)" 2>/dev/null)"
+code=$?
+
+if [[ $code -eq 0 ]]; then
+    notify event=prompt.end id="$id" ok=1
+    printf '%s\n' "$answer"
+    exit 0
+fi
+notify event=prompt.end id="$id" ok=0
+exit 1

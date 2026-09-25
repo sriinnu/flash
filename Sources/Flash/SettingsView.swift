@@ -11,8 +11,10 @@ import ServiceManagement
 ///   │ Alert style  tiles + Preview  │
 ///   │ Color        gradient swatches│
 ///   │ Behavior     remind/count/ripple
+///   │ Detection    prompts, activity│
 ///   │ System       launch at login  │
 ///   └ footer: Sriinnu · repo link   ┘
+@MainActor
 struct SettingsView: View {
 
     // Literal URL — can't fail to parse, so the force-unwrap is safe.
@@ -35,6 +37,10 @@ struct SettingsView: View {
     @AppStorage("reminderInterval") private var reminderInterval: ReminderInterval = .off
     @AppStorage("flashCount") private var flashCount: Int = 4
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @AppStorage("watchAuthPrompts") private var watchAuthPrompts: Bool = true
+    @AppStorage("activityLog") private var activityLog: Bool = true
+    @AppStorage("routeSSHPrompts") private var routeSSHPrompts: Bool = false
+    @State private var watchRoots: [String] = FlashSettings.shared.watchRoots
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -43,6 +49,7 @@ struct SettingsView: View {
             styleCard
             colorCard
             behaviorCard
+            detectionCard
             systemCard
             footer
         }
@@ -178,6 +185,92 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    // MARK: Detection
+
+    private var detectionCard: some View {
+        Card(title: "Detection") {
+            Row(title: "Auth prompts", subtitle: "Keychain, password, Touch ID and GPG PIN dialogs") {
+                Toggle("Auth prompts", isOn: $watchAuthPrompts)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .onChange(of: watchAuthPrompts) { _, _ in WatchManager.shared.reloadWatchers() }
+            }
+
+            Divider()
+
+            Row(title: "SSH prompts via Flash", subtitle: "Passphrases, PINs and key touches become dialogs, even from agents. Relaunch apps after changing") {
+                Toggle("SSH prompts via Flash", isOn: $routeSSHPrompts)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .onChange(of: routeSSHPrompts) { _, on in SSHPromptRouting.apply(enabled: on) }
+            }
+
+            Divider()
+
+            Row(title: "Activity log", subtitle: "Commits and pushes in the menu-bar panel. Never flashes") {
+                Toggle("Activity log", isOn: $activityLog)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .onChange(of: activityLog) { _, _ in WatchManager.shared.reloadWatchers() }
+            }
+
+            if activityLog {
+                VStack(alignment: .leading, spacing: 6) {
+                    if watchRoots.isEmpty {
+                        Text("No folders watched yet.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(watchRoots, id: \.self) { root in
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder")
+                                .foregroundStyle(.secondary)
+                            Text((root as NSString).abbreviatingWithTildeInPath)
+                                .font(.callout.monospaced())
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button {
+                                saveRoots(watchRoots.filter { $0 != root })
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Stop watching this folder")
+                        }
+                    }
+                    Button {
+                        addRoots()
+                    } label: {
+                        Label("Add folder…", systemImage: "plus")
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.leading, 2)
+            }
+        }
+    }
+
+    /// Folder picker, straight AppKit. Multi-select, since code tends to
+    /// live in two or three places.
+    private func addRoots() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Watch"
+        panel.message = "Pick folders that contain your git repos."
+        guard panel.runModal() == .OK else { return }
+        saveRoots(watchRoots + panel.urls.map(\.path))
+    }
+
+    private func saveRoots(_ roots: [String]) {
+        FlashSettings.shared.watchRoots = roots
+        watchRoots = FlashSettings.shared.watchRoots   // read back normalized
+        WatchManager.shared.reloadWatchers()
     }
 
     // MARK: System
