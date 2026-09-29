@@ -1,0 +1,10 @@
+# The release workflow pins actions to commit SHAs (it holds the signing
+# certificate). This keeps those pins current. Flash has no other dependencies.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

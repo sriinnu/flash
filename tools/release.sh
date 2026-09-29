@@ -41,7 +41,7 @@ say()  { printf '\033[1;33m▸ %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
 [[ "$(uname)" == "Darwin" ]] || die "releases build on macOS only (swift + codesign + hdiutil)"
-for tool in swift codesign ditto hdiutil shasum /usr/libexec/PlistBuddy; do
+for tool in swift lipo codesign ditto hdiutil shasum /usr/libexec/PlistBuddy; do
     command -v "$tool" >/dev/null || die "missing tool: $tool"
 done
 
@@ -58,6 +58,23 @@ fi
 
 if [[ -z "${CI:-}" && -n "$(git status --porcelain)" ]]; then
     die "working tree is dirty — commit first so the release matches a real commit"
+fi
+
+# Check publish preconditions before the slow part (build + two notarizations),
+# not after it.
+if [[ $PUBLISH -eq 1 ]]; then
+    command -v gh >/dev/null || die "--publish needs the GitHub CLI (brew install gh)"
+    if gh release view "$TAG" >/dev/null 2>&1; then
+        die "release $TAG already exists — bump CFBundleShortVersionString"
+    fi
+    # Locally, gh tags HEAD on GitHub, so GitHub has to have that commit.
+    if [[ -z "${CI:-}" && -z "$(git branch -r --contains HEAD 2>/dev/null)" ]]; then
+        die "HEAD isn't pushed — push it first so the tag points at a commit GitHub has"
+    fi
+    # Release assets on a private repo 404 for everyone else, including brew.
+    if [[ "$(gh repo view --json visibility --jq .visibility 2>/dev/null)" != "PUBLIC" ]]; then
+        say "warning: repo isn't public, so only collaborators can download this release"
+    fi
 fi
 
 DIST="dist"
@@ -210,10 +227,6 @@ echo "   signed: $([[ $SIGNED -eq 1 ]] && echo 'Developer ID' || echo 'ad-hoc') 
 
 # ── 7. Publish ──────────────────────────────────────────────────────────
 if [[ $PUBLISH -eq 1 ]]; then
-    command -v gh >/dev/null || die "--publish needs the GitHub CLI (brew install gh)"
-    if gh release view "$TAG" >/dev/null 2>&1; then
-        die "release $TAG already exists — bump CFBundleShortVersionString"
-    fi
     say "publishing GitHub release $TAG"
     # --target pins the tag to the exact commit built, if it doesn't exist yet.
     gh release create "$TAG" "$DMG" "$ZIP" "$DIST/SHA256SUMS" \

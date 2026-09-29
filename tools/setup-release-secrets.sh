@@ -11,8 +11,14 @@
 #
 # Finds on its own:
 #   DEVELOPER_ID   from your keychain (Developer ID Application identity)
-#   NOTARY_KEY_ID  from the .p8 filename (AuthKey_<KEYID>.p8)
-#   .p12 / .p8     newest match in ~/Downloads, ~/Desktop, ~/Documents
+#   the rest from the Apple dev vault in iCloud Drive, when it's there:
+#     $VAULT/developer-id.p12 + developer-id-password.txt    (shared, per team)
+#     $VAULT/flash/AuthKey_<KEYID>.p8 + key_id.md + issuer.md (per app)
+#   otherwise the newest .p12 / .p8 in ~/Downloads, ~/Desktop, ~/Documents,
+#   and the Key ID from the .p8 filename. Every value is still shown as a
+#   default you confirm with Enter (the password excepted: it's only checked).
+#
+#   APPLE_DEV_DIR  vault location (default: iCloud Drive/apple-dev-account)
 #
 # Also offers to create the public sriinnu/homebrew-tap repo if missing,
 # and to save a local notarytool profile for `make publish`.
@@ -25,7 +31,10 @@
 set -euo pipefail
 
 REPO="${REPO:-sriinnu/flash}"
+ENVIRONMENT="${ENVIRONMENT:-release}"
 TAP_REPO="${TAP_REPO:-sriinnu/homebrew-tap}"
+VAULT="${APPLE_DEV_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/apple-dev-account}"
+APP_VAULT="$VAULT/flash"
 
 bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -52,8 +61,18 @@ find_newest() {
     printf '%s' "$f"
 }
 
+# first line of a vault note, whitespace stripped; empty if the file's missing
+vault_value() { head -n 1 "$1" 2>/dev/null | tr -d '[:space:]' || true; }
+
+p12_opens() {  # p12_opens FILE  (password in $P12_PASSWORD)
+    # Via env, not argv: `pass:` would show the password in `ps` while it runs.
+    openssl pkcs12 -in "$1" -passin env:P12_PASSWORD -noout -legacy 2>/dev/null \
+        || openssl pkcs12 -in "$1" -passin env:P12_PASSWORD -noout 2>/dev/null
+}
+
 set_secret() { # set_secret NAME  (value on stdin)
-    gh secret set "$1" --repo "$REPO" >/dev/null
+    # Environment secrets: only main and v* tag runs can read them.
+    gh secret set "$1" --repo "$REPO" --env "$ENVIRONMENT" >/dev/null
     ok "$1"
 }
 
@@ -78,23 +97,37 @@ else
 fi
 ok "identity: $developer_id"
 
-p12="$(ask "Path to the exported .p12" "$(find_newest '*.p12')")"
+p12_default="$VAULT/developer-id.p12"
+[[ -f "$p12_default" ]] || p12_default="$(find_newest '*.p12')"
+p12="$(ask "Path to the exported .p12" "$p12_default")"
 p12="${p12/#\~/$HOME}"
 [[ -f "$p12" ]] || die "not found: $p12  (Keychain Access → My Certificates → right-click → Export)"
-p12_password="$(ask_secret "Password you set when exporting the .p12")"
-# Check it opens before uploading, so CI doesn't find out the hard way.
-openssl pkcs12 -in "$p12" -passin "pass:$p12_password" -noout -legacy 2>/dev/null \
-    || openssl pkcs12 -in "$p12" -passin "pass:$p12_password" -noout 2>/dev/null \
-    || die "that password doesn't open $p12"
+# Vault password if it opens the .p12, else ask. Checked before uploading,
+# so CI doesn't find out the hard way.
+export P12_PASSWORD
+P12_PASSWORD="$(head -n 1 "$VAULT/developer-id-password.txt" 2>/dev/null | tr -d '\r\n' || true)"
+if [[ -n "$P12_PASSWORD" ]] && p12_opens "$p12"; then
+    ok "vault password opens the .p12"
+else
+    P12_PASSWORD="$(ask_secret "Password you set when exporting the .p12")"
+    p12_opens "$p12" || die "that password doesn't open $p12"
+fi
+p12_password="$P12_PASSWORD"
+unset P12_PASSWORD
 
 # ── 2. App Store Connect API key ─────────────────────────────────────────
 bold "2. App Store Connect API key (notarization)"
-p8="$(ask "Path to AuthKey_XXXX.p8" "$(find_newest 'AuthKey_*.p8')")"
+# shellcheck disable=SC2012  # newest-first is all we need
+p8_default="$(ls -t "$APP_VAULT"/AuthKey_*.p8 2>/dev/null | head -n 1 || true)"
+[[ -n "$p8_default" ]] || p8_default="$(find_newest 'AuthKey_*.p8')"
+p8="$(ask "Path to AuthKey_XXXX.p8" "$p8_default")"
 p8="${p8/#\~/$HOME}"
 [[ -f "$p8" ]] || die "not found: $p8"
-key_id_guess="$(basename "$p8" | sed -n 's/^AuthKey_\([A-Z0-9]*\)\.p8$/\1/p')"
+key_id_guess="$(vault_value "$APP_VAULT/key_id.md")"
+[[ -n "$key_id_guess" ]] || key_id_guess="$(basename "$p8" | sed -n 's/^AuthKey_\([A-Z0-9]*\)\.p8$/\1/p')"
 key_id="$(ask "Key ID" "$key_id_guess")"
-issuer="$(ask "Issuer ID (top of the Team Keys page, a UUID)")"
+issuer_guess="$(grep -oE '[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}' "$APP_VAULT/issuer.md" 2>/dev/null | head -n 1 || true)"
+issuer="$(ask "Issuer ID (top of the Team Keys page, a UUID)" "$issuer_guess")"
 [[ "$issuer" =~ ^[0-9a-fA-F-]{36}$ ]] || die "that doesn't look like an Issuer ID (UUID)"
 
 # ── 3. Homebrew tap ──────────────────────────────────────────────────────
@@ -108,10 +141,12 @@ elif confirm "Create public repo $TAP_REPO now?"; then
 else
     echo "  Skipping. Create it before the first tagged release."
 fi
-tap_token="$(ask_secret "Fine-grained token (Contents: read & write on $TAP_REPO), empty to skip")"
+tap_token="$(ask_secret "Fine-grained token on $TAP_REPO only (Contents + Pull requests: read & write), empty to skip")"
 
 # ── Upload ───────────────────────────────────────────────────────────────
-bold "Uploading to $REPO"
+gh api "repos/$REPO/environments/$ENVIRONMENT" >/dev/null 2>&1 \
+    || die "environment '$ENVIRONMENT' missing on $REPO (Settings → Environments; limit it to main + v* tags)"
+bold "Uploading to $REPO ($ENVIRONMENT environment)"
 base64 -i "$p12" | set_secret DEVELOPER_ID_P12_BASE64
 printf '%s' "$p12_password" | set_secret DEVELOPER_ID_P12_PASSWORD
 printf '%s' "$developer_id" | set_secret DEVELOPER_ID

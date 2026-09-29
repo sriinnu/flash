@@ -6,9 +6,17 @@
 
 <p align="center">A macOS menu-bar app that lights up your screen edges when something is waiting on you:<br>a security key touch, a keychain prompt, or an agent's <code>git push</code> stuck on a passphrase.</p>
 
-<p align="center">macOS 14+ · Apple Silicon & Intel · no dependencies · <a href="LICENSE">MIT</a></p>
+<p align="center">
+  <a href="https://github.com/sriinnu/flash/releases/latest"><img src="https://img.shields.io/github/v/release/sriinnu/flash?label=release" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-blue" alt="macOS 14+">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/sriinnu/flash" alt="MIT license"></a>
+</p>
+
+<p align="center">Apple Silicon & Intel · no dependencies · signed and notarized</p>
 
 ---
+
+Security keys blink a tiny LED when they want a touch. If you're looking at another window, you miss it, and the signature times out. Flash makes that moment impossible to miss. It works with YubiKey, Google Titan, and any FIDO2/U2F key, and it also catches coding agents (Claude Code, Codex, Cursor) whose `git commit` or `git push` is quietly waiting on your key or passphrase.
 
 ## What it catches
 
@@ -28,6 +36,8 @@ brew install --cask sriinnu/tap/flash
 ```
 
 Or download `Flash-x.y.dmg` from [Releases](https://github.com/sriinnu/flash/releases) and drag it to Applications. Releases are signed and notarized by Apple.
+
+Uninstall with `brew uninstall --cask flash` (add `--zap` to remove settings and logs too).
 
 ## Git setup (optional, pick what you need)
 

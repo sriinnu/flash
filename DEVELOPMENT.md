@@ -120,13 +120,17 @@ CI refuses a tag that doesn't match the plist. Running the workflow manually (*A
 | Where | Signing | Notarization |
 |---|---|---|
 | Local | `DEVELOPER_ID="Developer ID Application: Name (TEAMID)"` | `NOTARY_PROFILE=<name>` from `xcrun notarytool store-credentials` |
-| GitHub secrets | `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`, `DEVELOPER_ID` | `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` |
+| GitHub `release` environment | `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`, `DEVELOPER_ID` | `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` |
 
-**Set them all at once:** `make release-secrets`. It finds the Developer ID identity in your keychain, reads the Key ID from the `.p8` filename, checks that the `.p12` password is right, and offers to create the tap repo. Then it uploads everything with `gh secret set`, so nothing is echoed or written to disk. The certificate and API key are per Apple team, so ones from other apps work unchanged.
+**Set them all at once:** `make release-secrets`. It finds the Developer ID identity in your keychain and reads the rest from the Apple dev vault in iCloud Drive (`apple-dev-account/`: the shared `developer-id.p12` and its password, plus `flash/AuthKey_*.p8`, `key_id.md`, `issuer.md`). Without the vault, it falls back to the newest `.p12`/`.p8` in Downloads, Desktop or Documents. It checks that the `.p12` password is right, offers to create the tap repo, and uploads everything with `gh secret set --env release`, so nothing is echoed or written to disk. The certificate and API key are per Apple team, so ones from other apps work unchanged.
+
+The secrets live on the **`release` environment**, not the repo. Only `main` and `v*` tags can deploy to it, so a workflow run from any other branch can't read the signing certificate. The workflow's actions are pinned to commit SHAs for the same reason, and Dependabot keeps the pins current.
 
 **Notarization** fails loudly. On a rejection, `release.sh` prints Apple's log with the exact reasons. On success it staples, runs `stapler validate`, and runs `spctl --assess`, which should say "Notarized Developer ID".
 
-**Homebrew.** After a tagged release publishes, CI runs `tools/update-cask.sh`. It renders `packaging/homebrew/flash.rb.template` with the version and the dmg's sha256, then writes `Casks/flash.rb` to `sriinnu/homebrew-tap` through the GitHub contents API, so the commit is GitHub-signed. It needs the `HOMEBREW_TAP_TOKEN` secret: a fine-grained PAT with Contents: read & write on the tap repo only. Preview locally with `make cask`.
+**Homebrew.** After a tagged release publishes, CI runs `tools/update-cask.sh`. It renders `packaging/homebrew/flash.rb.template` with the version and the dmg's sha256, then downloads the dmg anonymously and checks it against that sha256, the way `brew install` will. The tap's `main` requires PRs and signed commits and is shared with the other apps, so the script follows their convention: branch `flash-<version>`, commit via GraphQL `createCommitOnBranch` (GitHub-signed; REST contents-API commits come out unsigned and the tap would refuse them), PR `flash <version>`, squash merge. Re-running it is safe. It needs `HOMEBREW_TAP_TOKEN`: a fine-grained PAT on the tap repo only, with Contents and Pull requests set to read & write. Preview locally with `make cask`.
+
+**Tags and releases are immutable.** A ruleset blocks moving or deleting `v*` tags, and the repo has immutable releases on, so assets can't be swapped after publishing. A bad release gets a new version, never a re-upload.
 
 Without them, the release still ships ad-hoc signed, and the notes tell users how to approve the first launch.
 
