@@ -1,6 +1,6 @@
 ---
 name: flash
-description: Work on Flash, a macOS menu-bar app (Swift/AppKit/SwiftUI, no deps) that animates the screen edges when a FIDO security key needs a touch. Use when changing alert effects, detection (FIDO sniffer, SSH-signing wrapper), the menu-bar panel or settings, or when building, releasing, or helping someone set Flash up with git.
+description: Work on Flash, a macOS menu-bar app (Swift/AppKit/SwiftUI, no deps) that animates the screen edges when something is blocked on the user, such as a FIDO security-key touch, a keychain or Touch ID dialog, or a git/ssh passphrase prompt. Use when changing alert effects, detection (FIDO sniffer, SSH-signing wrapper, auth-dialog watcher, askpass/inbox), the menu-bar panel or settings, or when building, releasing (notarization, Homebrew cask), or helping someone set Flash up with git.
 ---
 
 # Flash
@@ -52,4 +52,12 @@ Point `gpg.ssh.program` at `/Applications/Flash.app/Contents/Resources/git-ssh-k
 
 ## Releasing
 
-To release: bump the plist, commit, then `git tag vX.Y && git push origin vX.Y`. `.github/workflows/release.yml` runs `tools/release.sh --publish`. The signing and notarization secrets are listed in DEVELOPMENT.md → Releasing. Never commit `.p12` or `.p8` files.
+To release: bump the plist, commit, then `git tag vX.Y && git push origin vX.Y`. `.github/workflows/release.yml` runs `tools/release.sh --publish`, then `tools/update-cask.sh` updates `sriinnu/homebrew-tap`. `main` requires signed commits, so merge PRs by squash (GitHub signs the squash commit). The signing and notarization secrets are listed in DEVELOPMENT.md → Releasing. Never commit `.p12` or `.p8` files.
+
+- **The cask only works while `sriinnu/flash` is public.** Release assets on a private repo 404 for anyone without access, brew included. `update-cask.sh` downloads the dmg anonymously and checks its sha256 before touching the tap, so a private repo fails that step instead of shipping a broken cask. Don't work around the check.
+- `release.sh --publish` checks its preconditions (release doesn't exist, HEAD is pushed) *before* building, because notarization takes minutes.
+- A first-time user sees the Gatekeeper result, not the build log. If you touch signing, confirm `spctl --assess` still says "Notarized Developer ID".
+- Release secrets are on the `release` environment (main + `v*` tags only), never repo-level. Keep workflow actions pinned to SHAs.
+- The tap's `main` needs PRs. `update-cask.sh` goes branch `flash-<ver>` → PR → squash, like the other apps' bumps. Never push to the tap directly.
+- `v*` tags and published releases are immutable. Fix a bad release with a new version.
+- Changing the bundle id, support folder or log path means changing the cask's `uninstall`/`zap` in `packaging/homebrew/flash.rb.template` too.

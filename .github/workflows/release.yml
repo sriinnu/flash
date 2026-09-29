@@ -13,6 +13,13 @@
 #   NOTARY_KEY_P8_BASE64      base64 of the App Store Connect API key (AuthKey_XXXX.p8)
 #   NOTARY_KEY_ID             that key's Key ID
 #   NOTARY_ISSUER             Issuer ID from the same App Store Connect page
+#   HOMEBREW_TAP_TOKEN        fine-grained PAT on sriinnu/homebrew-tap only,
+#                             Contents + Pull requests: read & write. Without
+#                             it the cask step is skipped.
+#
+# All of them are secrets on the "release" environment, not the repo:
+# `make release-secrets` puts them there. Actions are pinned to commit SHAs
+# because this job holds the signing certificate.
 
 name: Release
 
@@ -24,15 +31,24 @@ on:
 permissions:
   contents: write   # create the release + upload assets
 
+# Two tags pushed together must not race each other into the tap.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: macos-15
+    # Secrets live on the "release" environment, which only main and v* tags
+    # can deploy to: no other branch's workflow run can read them.
+    environment: release
     env:
       # Step-level `if:` can't see secrets, so resolve "is it configured?" once here.
       HAS_P12: ${{ secrets.DEVELOPER_ID_P12_BASE64 != '' }}
       HAS_P8: ${{ secrets.NOTARY_KEY_P8_BASE64 != '' }}
+      HAS_TAP: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           fetch-depth: 0   # full history: build number = commit count, changelog = log since last tag
 
@@ -77,9 +93,16 @@ jobs:
             tools/release.sh
           fi
 
+      # Only after a real, published release: the cask points at its dmg.
+      - name: Update Homebrew tap
+        if: github.ref_type == 'tag' && env.HAS_TAP == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: tools/update-cask.sh
+
       - name: Keep artifacts on the run
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: flash-release
           path: |

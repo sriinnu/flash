@@ -41,7 +41,7 @@ say()  { printf '\033[1;33m▸ %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
 [[ "$(uname)" == "Darwin" ]] || die "releases build on macOS only (swift + codesign + hdiutil)"
-for tool in swift codesign ditto hdiutil shasum /usr/libexec/PlistBuddy; do
+for tool in swift lipo codesign ditto hdiutil shasum /usr/libexec/PlistBuddy; do
     command -v "$tool" >/dev/null || die "missing tool: $tool"
 done
 
@@ -58,6 +58,23 @@ fi
 
 if [[ -z "${CI:-}" && -n "$(git status --porcelain)" ]]; then
     die "working tree is dirty — commit first so the release matches a real commit"
+fi
+
+# Check publish preconditions before the slow part (build + two notarizations),
+# not after it.
+if [[ $PUBLISH -eq 1 ]]; then
+    command -v gh >/dev/null || die "--publish needs the GitHub CLI (brew install gh)"
+    if gh release view "$TAG" >/dev/null 2>&1; then
+        die "release $TAG already exists — bump CFBundleShortVersionString"
+    fi
+    # Locally, gh tags HEAD on GitHub, so GitHub has to have that commit.
+    if [[ -z "${CI:-}" && -z "$(git branch -r --contains HEAD 2>/dev/null)" ]]; then
+        die "HEAD isn't pushed — push it first so the tag points at a commit GitHub has"
+    fi
+    # Release assets on a private repo 404 for everyone else, including brew.
+    if [[ "$(gh repo view --json visibility --jq .visibility 2>/dev/null)" != "PUBLIC" ]]; then
+        say "warning: repo isn't public, so only collaborators can download this release"
+    fi
 fi
 
 DIST="dist"
@@ -119,7 +136,18 @@ fi
 
 notarize() {  # $1 = file to submit
     say "notarizing $(basename "$1") — usually a few minutes"
-    xcrun notarytool submit "$1" "${NOTARY_ARGS[@]}" --wait
+    local out id status
+    out="$(xcrun notarytool submit "$1" "${NOTARY_ARGS[@]}" --wait --output-format json)" || true
+    id="$(printf '%s' "$out" | sed -n 's/.*"id" *: *"\([^"]*\)".*/\1/p')"
+    status="$(printf '%s' "$out" | sed -n 's/.*"status" *: *"\([^"]*\)".*/\1/p')"
+    if [[ "$status" != "Accepted" ]]; then
+        # The submit output only says "Invalid"; the log says *why*
+        # (unsigned binary, missing hardened runtime, bad timestamp…).
+        echo "$out" >&2
+        [[ -n "$id" ]] && xcrun notarytool log "$id" "${NOTARY_ARGS[@]}" >&2
+        die "notarization ${status:-failed} for $(basename "$1")"
+    fi
+    say "notarized ✓ ($id)"
 }
 
 NOTARIZED=0
@@ -130,6 +158,9 @@ if [[ $SIGNED -eq 1 && $CAN_NOTARIZE -eq 1 ]]; then
     notarize "$DIST/notarize.zip"
     rm "$DIST/notarize.zip"
     xcrun stapler staple "$APP"
+    xcrun stapler validate "$APP"
+    # What a user's Mac will decide on first launch: must say "Notarized Developer ID".
+    spctl --assess --type execute -vv "$APP"
     NOTARIZED=1
 elif [[ $SIGNED -eq 1 ]]; then
     say "no notary credentials — signed but not notarized"
@@ -153,6 +184,7 @@ fi
 if [[ $NOTARIZED -eq 1 ]]; then
     notarize "$DMG"
     xcrun stapler staple "$DMG"
+    xcrun stapler validate "$DMG"
 fi
 
 ( cd "$DIST" && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")" > SHA256SUMS )
@@ -195,10 +227,6 @@ echo "   signed: $([[ $SIGNED -eq 1 ]] && echo 'Developer ID' || echo 'ad-hoc') 
 
 # ── 7. Publish ──────────────────────────────────────────────────────────
 if [[ $PUBLISH -eq 1 ]]; then
-    command -v gh >/dev/null || die "--publish needs the GitHub CLI (brew install gh)"
-    if gh release view "$TAG" >/dev/null 2>&1; then
-        die "release $TAG already exists — bump CFBundleShortVersionString"
-    fi
     say "publishing GitHub release $TAG"
     # --target pins the tag to the exact commit built, if it doesn't exist yet.
     gh release create "$TAG" "$DMG" "$ZIP" "$DIST/SHA256SUMS" \
