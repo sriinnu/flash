@@ -213,15 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Flash Settings"
             window.contentView = hostingView
             window.isReleasedWhenClosed = false
-            // Centre inside the *visible* frame (menu bar and Dock excluded).
-            // `center()` sits windows above centre, too close to the top edge.
-            if let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
-                let frame = window.frame
-                window.setFrameOrigin(NSPoint(
-                    x: visible.midX - frame.width / 2,
-                    y: visible.minY + (visible.height - frame.height) / 2
-                ))
-            }
+            centerInVisibleFrame(window)
             settingsWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -240,11 +232,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Flash Activity"
             window.contentView = NSHostingView(rootView: ActivityView(activity: ActivityLog.shared))
             window.isReleasedWhenClosed = false
-            window.center()
+            centerInVisibleFrame(window)
             activityWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)
         activityWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Centre inside the *visible* frame (menu bar and Dock excluded).
+    /// `center()` sits windows above centre, too close to the top edge.
+    private func centerInVisibleFrame(_ window: NSWindow) {
+        guard let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
+        let frame = window.frame
+        window.setFrameOrigin(NSPoint(
+            x: visible.midX - frame.width / 2,
+            y: visible.minY + (visible.height - frame.height) / 2
+        ))
     }
 
     @objc private func quitApp() {
