@@ -32,6 +32,10 @@ final class WatchManager: ObservableObject {
         EventInbox.shared.onEvent = { fields in
             Task { @MainActor in InboxRouter.handle(fields) }
         }
+        EventInbox.shared.onHook = { payload in
+            guard FlashSettings.shared.watchAgents else { return }
+            Task { @MainActor in AgentHookRouter.handle(payload) }
+        }
         EventInbox.shared.start()
         startOptionalWatchers()
     }

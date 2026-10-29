@@ -41,6 +41,7 @@ struct SettingsView: View {
     @AppStorage("watchAuthPrompts") private var watchAuthPrompts: Bool = true
     @AppStorage("activityLog") private var activityLog: Bool = true
     @AppStorage("routeSSHPrompts") private var routeSSHPrompts: Bool = false
+    @AppStorage("watchAgents") private var watchAgents: Bool = true
     @State private var watchRoots: [String] = FlashSettings.shared.watchRoots
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -61,6 +62,7 @@ struct SettingsView: View {
             page {
                 styleCard
                 colorCard
+                eventsCard
                 behaviorCard
             }
             .tabItem { Label("Alerts", systemImage: "bolt.fill") }
@@ -180,6 +182,22 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Per event
+
+    /// Agent alerts get their own look, so a glance says what happened.
+    /// Key and password alerts keep the style and colour above.
+    private var eventsCard: some View {
+        Card(title: "Per event") {
+            ForEach([AlertKind.agentWaiting, .secretAccess]) { kind in
+                if kind != .agentWaiting { Divider() }
+                EventLookRow(kind: kind)
+            }
+            Text("Key and password alerts use the style and colour above.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: Behavior
 
     private var behaviorCard: some View {
@@ -232,6 +250,14 @@ struct SettingsView: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .onChange(of: watchAuthPrompts) { _, _ in WatchManager.shared.reloadWatchers() }
+            }
+
+            Divider()
+
+            Row(title: "Agent alerts", subtitle: "Claude Code waiting for your approval, and secrets it reads. Needs flash-agent-hook in Claude's settings (README)") {
+                Toggle("Agent alerts", isOn: $watchAgents)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
             }
 
             Divider()
@@ -405,6 +431,51 @@ private struct Row<Control: View>: View {
             .layoutPriority(1)
             Spacer(minLength: 12)
             control
+        }
+    }
+}
+
+/// One event kind's look: style, colour, preview. Its own view so the
+/// @AppStorage keys can come from the kind.
+private struct EventLookRow: View {
+    let kind: AlertKind
+    @AppStorage private var style: AlertStyle
+    @AppStorage private var color: FlashColor
+
+    init(kind: AlertKind) {
+        self.kind = kind
+        _style = AppStorage(wrappedValue: kind.defaultStyle, kind.styleKey)
+        _color = AppStorage(wrappedValue: kind.defaultColor, kind.colorKey)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(kind.label)
+            Text(kind.blurb)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Picker("Style", selection: $style) {
+                    ForEach(AlertStyle.allCases) { Label($0.shortLabel, systemImage: $0.symbol).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                Picker("Colour", selection: $color) {
+                    ForEach(FlashColor.allCases) { Text($0.label).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                Circle()
+                    .fill(Swatch.fill(for: color))
+                    .frame(width: 14, height: 14)
+                Spacer()
+                Button {
+                    Task { @MainActor in FlashController.shared.testPulse(kind) }
+                } label: {
+                    Label("Preview", systemImage: "play.fill")
+                }
+            }
         }
     }
 }

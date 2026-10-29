@@ -267,6 +267,8 @@ struct ActivityRow: View {
         case .commit: return "checkmark.circle.fill"
         case .push: return "arrow.up.circle.fill"
         case .prompt: return "key.fill"
+        case .agentWaiting: return "hourglass"
+        case .secretAccess: return "lock.trianglebadge.exclamationmark.fill"
         }
     }
 
@@ -275,6 +277,8 @@ struct ActivityRow: View {
         case .commit: return .secondary
         case .push: return .accentColor
         case .prompt: return .orange
+        case .agentWaiting: return .purple
+        case .secretAccess: return .red
         }
     }
 

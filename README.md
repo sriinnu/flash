@@ -26,8 +26,11 @@ Security keys blink a tiny LED when they want a touch. If you're looking at anot
 | SSH commit signing with an `sk-` key | `git-ssh-keygen-flash` wrapper |
 | Keychain, password, Touch ID, GPG PIN dialogs | Watches for those system dialogs on screen |
 | git/ssh passphrase, PIN, credential, key touch | `flash-askpass` |
+| Claude Code waiting for your approval | `flash-agent-hook` (Claude Code hooks) |
 
-It also keeps an **activity log** of commits and successful pushes, with agent vs you, in the menu-bar panel. The log never flashes.
+Each kind has its own look, so you know what happened before reading anything: your key in your chosen style (Comet, amber by default), an **agent waiting** as an ultraviolet heartbeat, and an **agent reading a secret** you weren't asked about (keychain, 1Password, `~/.ssh`, `.env`) as a crimson target lock that plays once. Change them in **Settings → Alerts → Per event**.
+
+It also keeps an **activity log** of commits, pushes, prompts and agent requests, with agent vs you, for 7 days. The panel shows the latest; **All** opens the week. The log never flashes.
 
 ## Install
 
@@ -60,6 +63,26 @@ git config --global core.hooksPath "$R/git-hooks"
 - **ssh prompts** (passphrase, PIN, key touch): turn on **Settings → Detection → SSH prompts via Flash**. This also reaches agents in GUI apps like Claude.app. Relaunch those apps afterwards.
 - **Global hooks** run each repo's own hooks first, unchanged. Repos with their own `core.hooksPath` (husky, lefthook) keep it. Undo with `git config --global --unset core.hooksPath`.
 - **Apple's `ssh-keygen` lacks FIDO support?** Run `brew install openssh` and set `FLASH_SSH_KEYGEN=/opt/homebrew/bin/ssh-keygen`.
+
+## Agent alerts (Claude Code, optional)
+
+Add this to `~/.claude/settings.json` (merge into an existing `"hooks"` block):
+
+```json
+{
+  "hooks": {
+    "Notification":       [{ "hooks": [{ "type": "command", "command": "/Applications/Flash.app/Contents/Resources/flash-agent-hook", "async": true, "timeout": 5 }] }],
+    "PermissionRequest":  [{ "hooks": [{ "type": "command", "command": "/Applications/Flash.app/Contents/Resources/flash-agent-hook", "async": true, "timeout": 5 }] }],
+    "PostToolUse":        [{ "hooks": [{ "type": "command", "command": "/Applications/Flash.app/Contents/Resources/flash-agent-hook", "async": true, "timeout": 5 }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "/Applications/Flash.app/Contents/Resources/flash-agent-hook", "async": true, "timeout": 5 }] }],
+    "Stop":               [{ "hooks": [{ "type": "command", "command": "/Applications/Flash.app/Contents/Resources/flash-agent-hook", "async": true, "timeout": 5 }] }]
+  }
+}
+```
+
+- **Watch-only.** The hook runs async and prints nothing, so it can't approve, deny or slow down anything. It forwards approval prompts, and tool calls only when they touch a secret; ordinary calls stop in the script.
+- **What you see:** the activity log says what the agent asked for (*Run `git push origin main`* in *flash*). A secret read that went through a prompt is logged as *you approved* and doesn't flash; one that didn't is *auto-approved* and does.
+- Off switch: **Settings → Detection → Agent alerts**.
 
 ## Use
 
