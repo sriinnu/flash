@@ -165,6 +165,7 @@ staple() {  # $1 = notarized .app or .dmg
     local try
     for try in 1 2 3 4 5; do
         xcrun stapler staple "$1" && xcrun stapler validate "$1" && return 0
+        [[ $try -eq 5 ]] && break
         say "staple attempt $try failed for $(basename "$1"), retrying in $((try * 10))s"
         sleep $((try * 10))
     done
