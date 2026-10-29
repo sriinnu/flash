@@ -5,6 +5,8 @@
 #
 #   flash-notify event=prompt.begin id=42 kind=password
 #   flash-notify event=prompt.end   id=42 ok=1
+#   flash-notify event=prompt.begin id=7 kind=agent-approval detail="Run \`git push\`" cwd="$PWD"
+#                                    (an agent waiting for approval: agent look, not key look)
 #   flash-notify event=attrib       sha=<full sha>
 #
 # It writes a small key=value file into Flash's inbox folder and exits. If
@@ -44,7 +46,7 @@ while IFS= read -r comm; do
     lower="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
     if [[ "$actor" != agent ]]; then
         case "$lower" in
-            claude*|codex*|aider*|cursor-agent*|gemini*|goose*|opencode*)
+            claude*|codex*|ribhu*|aider*|cursor-agent*|gemini*|goose*|opencode*)
                 actor=agent
                 agent="$base"
                 ;;
