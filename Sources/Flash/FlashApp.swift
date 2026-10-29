@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let quickToggleItem = NSMenuItem()
     private var cancellables = Set<AnyCancellable>()
     private var settingsWindow: NSWindow?
+    private var activityWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -74,6 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.openSettings()
+            },
+            openActivity: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.openActivity()
             },
             quit: { NSApp.terminate(nil) }
         ))
@@ -221,6 +226,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Same hand-owned window approach as Settings, for the same reasons.
+    private func openActivity() {
+        if activityWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: ActivityView.windowSize),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Flash Activity"
+            window.contentView = NSHostingView(rootView: ActivityView(activity: ActivityLog.shared))
+            window.isReleasedWhenClosed = false
+            window.center()
+            activityWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        activityWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func quitApp() {
