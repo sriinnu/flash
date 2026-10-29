@@ -38,13 +38,15 @@ enum Actor: Equatable, Codable {
 struct ActivityEvent: Identifiable, Equatable, Codable {
     enum Kind: String, Equatable, Codable {
         case commit, push, prompt
+        case agentWaiting   // an agent asked for your approval
+        case secretAccess   // an agent read something secret
     }
 
     var id = UUID()
     let kind: Kind
     let repo: String?      // repo folder name
     let ref: String?       // branch, or remote/branch for pushes
-    let summary: String    // commit subject, "Pushed …", prompt kind
+    var summary: String    // commit subject, "Pushed …", prompt kind, agent request
     let sha: String?       // full sha — what hook attributions match on
     let date: Date
     var actor: Actor
@@ -103,6 +105,14 @@ final class ActivityLog: ObservableObject {
         let cutoff = Date().addingTimeInterval(-60)
         pendingActors = pendingActors.filter { $0.value.at > cutoff }
         pendingActors[sha] = (actor, Date())
+    }
+
+    /// Agent hooks can arrive in either order: the "waiting" notification
+    /// first, the details of what it asked a moment later.
+    func updateSummary(id: UUID, to summary: String) {
+        guard let i = events.firstIndex(where: { $0.id == id }) else { return }
+        events[i].summary = summary
+        save()
     }
 
     func clear() {

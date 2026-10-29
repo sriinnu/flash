@@ -1,0 +1,57 @@
+#!/bin/bash
+#
+# flash-agent-hook — Claude Code hook that hands Flash what an agent is doing.
+# Register it (async, so it never slows a tool call) for Notification,
+# PermissionRequest, PostToolUse, PostToolUseFailure, PermissionDenied, Stop
+# and UserPromptSubmit; README → "Agent alerts" has the settings.json block.
+#
+# It reads the hook's JSON from stdin and drops it, unchanged, into Flash's
+# inbox as a .hook file. It prints nothing, so it can never approve, deny or
+# change anything: Flash watches agents, it doesn't steer them.
+#
+# Most tool calls are dropped here, before they cost an inbox file:
+#   Notification, PermissionRequest   always forwarded (rare, and the point)
+#   PostToolUse                       only if it touches a secret, or its
+#                                     session is waiting on you
+#   everything else                   only if its session is waiting on you
+#
+# No Flash on this Mac (no inbox) → does nothing.
+
+set -u
+
+INBOX="${FLASH_INBOX:-$HOME/Library/Application Support/Flash/inbox}"
+[[ -d "$INBOX" ]] || exit 0
+WAITING="${INBOX%/inbox}/agent-waiting"
+
+payload="$(cat)"
+[[ -n "$payload" ]] || exit 0
+
+field() {  # field NAME → first "NAME":"value" in the payload (ids and names only)
+    printf '%s' "$payload" | sed -n "s/.*\"$1\" *: *\"\([^\"]*\)\".*/\1/p" | head -n 1
+}
+
+event="$(field hook_event_name)"
+session="$(field session_id)"
+
+# Keep in step with ToolCall.secretPattern in Sources/Flash/AgentHooks.swift.
+# This side may over-match (Flash re-checks); it must never under-match.
+secrets='security +(find-(generic|internet)-password|dump-keychain|export|unlock-keychain)|(^|[^a-z])op +(read|inject|run|signin|item +get)|(^|[^a-z])bw +(get|unlock|export)|gh +auth +token|\.ssh|id_(rsa|ecdsa|ed25519)|apple-dev-account|Library/Keychains|1password|\.env|\.(p12|p8|pem)'
+
+waiting() {
+    # Markers Flash forgot to clear (a crash) stop counting after 15 minutes.
+    [[ -n "$session" && -n "$(find "$WAITING/$session" -mmin -15 2>/dev/null)" ]]
+}
+
+case "$event" in
+    Notification|PermissionRequest) ;;
+    PostToolUse)
+        waiting || printf '%s' "$payload" | grep -Eiq "$secrets" || exit 0 ;;
+    PostToolUseFailure|PermissionDenied|Stop|UserPromptSubmit)
+        waiting || exit 0 ;;
+    *) exit 0 ;;
+esac
+
+tmp="$(mktemp "$INBOX/.tmp.XXXXXX" 2>/dev/null)" || exit 0
+printf '%s' "$payload" > "$tmp"
+mv -f "$tmp" "$INBOX/$(date +%s)-$$-$RANDOM.hook" 2>/dev/null || rm -f "$tmp"
+exit 0

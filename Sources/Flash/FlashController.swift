@@ -37,6 +37,9 @@ final class FlashController: ObservableObject {
     private var reminderTask: Task<Void, Never>?
     private var successResetTask: Task<Void, Never>?
     private var watchdogTasks: [String: Task<Void, Never>] = [:]
+    /// What each active trigger is about, so reminders and resolves use
+    /// the right look. Missing = `.auth`.
+    private var triggerKinds: [String: AlertKind] = [:]
 
     /// Shortest an alert stays up before a touch may cut it. A ready hand
     /// answers inside a second, and the comet then faded in 0.18s: it looked
@@ -50,17 +53,28 @@ final class FlashController: ObservableObject {
     /// the guard below treats "already active" as "already alerting". This
     /// caps that blast radius regardless of why resolve never came.
     private let watchdogTimeout: Duration = .seconds(45)
+    /// An agent can sit on a permission prompt for minutes while you're
+    /// away; that's the case worth reminding about, so it gets longer.
+    private let agentWatchdogTimeout: Duration = .seconds(600)
 
     /// Begin an alert for a trigger. Ignored if that trigger is already active.
-    func trigger(_ id: String) {
+    func trigger(_ id: String, kind: AlertKind = .auth) {
         guard !activeTriggers.contains(id) else { return }
         activeTriggers.insert(id)
+        triggerKinds[id] = kind
         lastAlertAt = Date()
         successResetTask?.cancel()
         iconState = .alerting
-        pulseAll()
+        pulseAll(kind: kind)
         scheduleReminder()
-        scheduleWatchdog(id)
+        scheduleWatchdog(id, timeout: kind == .agentWaiting ? agentWatchdogTimeout : watchdogTimeout)
+    }
+
+    /// Something worth seeing that nobody has to answer (an agent read a
+    /// secret): one alert, no trigger state, no reminders.
+    func notice(_ kind: AlertKind) {
+        lastAlertAt = Date()
+        pulseAll(kind: kind)
     }
 
     /// The prompt ended. `success` = answered (key touched, password entered);
@@ -69,18 +83,15 @@ final class FlashController: ObservableObject {
         guard activeTriggers.remove(id) != nil else { return }
         watchdogTasks[id]?.cancel()
         watchdogTasks[id] = nil
+        let kind = triggerKinds.removeValue(forKey: id) ?? .auth
 
-        if success {
+        if success && kind != .auth {
+            // An approved agent prompt isn't a key touch: no count, no ripple.
+            fadeAfterMinimum(celebrate: false)
+            iconState = activeTriggers.isEmpty ? .idle : .alerting
+        } else if success {
             recordTouch()
-            // Only the windows up now: an alert that starts during the wait
-            // must keep running.
-            let shown = alertWindows
-            let wait = minimumAlertTime - Date().timeIntervalSince(lastAlertAt ?? .distantPast)
-            Task { [weak self] in
-                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
-                shown.forEach { $0.fadeOut() }
-                if FlashSettings.shared.successRipple { self?.celebrateAll() }
-            }
+            fadeAfterMinimum(celebrate: FlashSettings.shared.successRipple)
             iconState = .success
             successResetTask?.cancel()
             successResetTask = Task { [weak self] in
@@ -98,10 +109,23 @@ final class FlashController: ObservableObject {
         }
     }
 
+    /// Fades the alert once it has been up `minimumAlertTime`. Only the
+    /// windows up now: an alert that starts during the wait must keep running.
+    private func fadeAfterMinimum(celebrate: Bool) {
+        let shown = alertWindows
+        let wait = minimumAlertTime - Date().timeIntervalSince(lastAlertAt ?? .distantPast)
+        Task { [weak self] in
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            shown.forEach { $0.fadeOut() }
+            if celebrate { self?.celebrateAll() }
+        }
+    }
+
     /// Hard reset — used when watching is paused.
     func resolveAll() {
         dismissAlerts()
         activeTriggers.removeAll()
+        triggerKinds.removeAll()
         reminderTask?.cancel()
         reminderTask = nil
         successResetTask?.cancel()
@@ -110,9 +134,9 @@ final class FlashController: ObservableObject {
         iconState = .idle
     }
 
-    /// Manual pulse from the menu — no trigger state, just the fireworks.
-    func testPulse() {
-        pulseAll()
+    /// Manual pulse from the menu or Settings: no trigger state, just the fireworks.
+    func testPulse(_ kind: AlertKind = .auth) {
+        pulseAll(kind: kind)
     }
 
     /// Manual success ripple from the menu — ignores the settings toggle,
@@ -154,17 +178,17 @@ final class FlashController: ObservableObject {
     /// skip the finesse and go full classic. Reduce Motion also forces
     /// classic — every other style moves the border, which is exactly what
     /// that setting exists to switch off.
-    private func pulseAll(escalated: Bool = false) {
+    private func pulseAll(kind: AlertKind, escalated: Bool = false) {
         let settings = FlashSettings.shared
-        let style: AlertStyle = (escalated || reduceMotion) ? .classic : settings.alertStyle
-        let preset = settings.flashColor
+        let style: AlertStyle = (escalated || reduceMotion) ? .classic : settings.style(for: kind)
+        let preset = settings.color(for: kind)
         let count = settings.flashCount
         let passes = cometPasses
         // Resolved once per pulse, not per screen, so a "random" roll shows
         // the same colors on every display and the glow matches the stroke.
         let gradient = preset == .random ? FlashColor.randomVividGradient() : preset.gradient
         let glow = gradient[0]
-        Log.write("[controller] alert — \(style.rawValue)\(escalated ? " (escalated)" : "")")
+        Log.write("[controller] alert — \(style.rawValue)\(kind == .auth ? "" : " for \(kind.rawValue)")\(escalated ? " (escalated)" : "")")
 
         for screen in NSScreen.screens {
             let window = OverlayWindow(screen: screen) { frame in
@@ -216,12 +240,12 @@ final class FlashController: ObservableObject {
         alertWindows.forEach { $0.fadeOut() }
     }
 
-    private func scheduleWatchdog(_ id: String) {
+    private func scheduleWatchdog(_ id: String, timeout: Duration) {
         watchdogTasks[id]?.cancel()
         watchdogTasks[id] = Task { [weak self] in
-            try? await Task.sleep(for: self?.watchdogTimeout ?? .seconds(45))
+            try? await Task.sleep(for: timeout)
             guard !Task.isCancelled, let self, self.activeTriggers.contains(id) else { return }
-            Log.write("[controller] '\(id)' never resolved within \(self.watchdogTimeout) — clearing so it can rearm")
+            Log.write("[controller] '\(id)' never resolved within \(timeout) — clearing so it can rearm")
             self.resolve(id, success: false)
         }
     }
@@ -234,7 +258,9 @@ final class FlashController: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled, let self, !self.activeTriggers.isEmpty else { return }
-                self.pulseAll(escalated: true)
+                // A key prompt outranks an agent: it times out on its own.
+                let kinds = self.activeTriggers.map { self.triggerKinds[$0] ?? .auth }
+                self.pulseAll(kind: kinds.contains(.auth) ? .auth : .agentWaiting, escalated: true)
             }
         }
     }

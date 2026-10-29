@@ -106,7 +106,7 @@ final class RepoActivityWatcher {
                     guard entry.message.hasPrefix("update by push") else { continue }   // skip fetches
                     event = ActivityEvent(kind: .push, repo: repo, ref: ref, summary: "Pushed to \(ref)",
                                           sha: entry.newSHA, date: entry.date, actor: .unknown)
-                case .prompt:
+                case .prompt, .agentWaiting, .secretAccess:
                     continue
                 }
                 Task { @MainActor in ActivityLog.shared.record(event) }

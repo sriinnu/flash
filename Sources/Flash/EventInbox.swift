@@ -17,6 +17,9 @@ final class EventInbox {
 
     /// Called on the main queue with each event's fields.
     var onEvent: (([String: String]) -> Void)?
+    /// Called on the main queue with each agent hook's JSON payload
+    /// (`.hook` files from tools/flash-agent-hook).
+    var onHook: (([String: Any]) -> Void)?
 
     private let maxAge: TimeInterval = 30
     private var source: DispatchSourceFileSystemObject?
@@ -59,11 +62,17 @@ final class EventInbox {
         ) else { return }
 
         // Names start with the epoch second, so this is roughly arrival order.
-        for url in urls.filter({ $0.pathExtension == "event" }).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+        for url in urls.filter({ ["event", "hook"].contains($0.pathExtension) }).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             defer { try? fm.removeItem(at: url) }
             let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             guard Date().timeIntervalSince(modified) <= maxAge else {
                 Log.write("[inbox] dropped stale \(url.lastPathComponent)")
+                continue
+            }
+            if url.pathExtension == "hook" {
+                guard let data = try? Data(contentsOf: url),
+                      let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
+                onHook?(payload)
                 continue
             }
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }

@@ -45,6 +45,9 @@ Both diagrams in this guide are drawn with inkline: edit `docs/*.html`, then re-
 | `Log.swift` | stdout + `~/Library/Logs/Flash.log` |
 | `tools/git-ssh-keygen-flash` | `gpg.ssh.program` wrapper, shipped in `Contents/Resources` |
 | `tools/flash-notify` | The one client for the inbox; works out agent vs you from the process tree |
+| `AgentHooks.swift` | `AgentHookRouter` (Claude Code hook JSON → agent-waiting alert, secret-access notice, log) and `ToolCall` (summary, secret patterns) |
+| `ActivityView.swift` | The Flash Activity window: 7 days, grouped by day |
+| `tools/flash-agent-hook` | Claude Code hook: filters, then drops the hook JSON into the inbox as a `.hook` file. Shipped in `Contents/Resources` |
 | `tools/flash-askpass` | `core.askPass` / `SSH_ASKPASS`: flashes, then asks through a dialog |
 | `tools/git-hooks/` | Optional global hooks: forward to the repo's own hooks, then report who made the change |
 | `Resources/logo.svg` | Icon master. The screen tile, two comets colliding at the bottom, a bolt striking the collision point. `logo.png` and `Flash.icns` are rendered from it |
@@ -72,6 +75,12 @@ Both diagrams in this guide are drawn with inkline: edit `docs/*.html`, then re-
 | `attrib` | `sha` | Sets who made that commit/push in the activity log |
 
 Debug a prompt that doesn't alert: `FLASH_DEBUG_WINDOWS=1 make run` logs every window owner that appears on screen.
+
+### Alert kinds
+
+`AlertKind` decides the look: `.auth` (keys, passwords; the original `alertStyle`/`flashColor` keys), `.agentWaiting` (Heartbeat, ultraviolet) and `.secretAccess` (Target lock, crimson, via `FlashController.notice`: one alert, no trigger state, no reminders). Agent waits get a 10-minute watchdog instead of 45 s. Approving an agent isn't a key touch, so it neither counts nor ripples.
+
+Claude Code doesn't say whether a call was auto-approved. `AgentHookRouter` treats a `PostToolUse` that had a `PermissionRequest` (same session, same tool input) as yours, and one without as auto-approved. The hook script checks `Application Support/Flash/agent-waiting/<session>` so ordinary tool calls never reach the inbox; keep its `secrets` regex at least as wide as `ToolCall.secretPattern`.
 
 ## Adding an alert style
 

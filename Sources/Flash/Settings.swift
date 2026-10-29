@@ -117,6 +117,52 @@ enum AlertStyle: String, CaseIterable, Identifiable {
     }
 }
 
+/// What an alert is about. Each kind has its own motion and colour, so you
+/// know what happened before reading anything. `.auth` is the original
+/// alert and keeps the original settings keys.
+enum AlertKind: String, CaseIterable, Identifiable {
+    case auth          // security key, keychain, Touch ID, PIN: needs you
+    case agentWaiting  // an agent is blocked on your approval
+    case secretAccess  // an agent read a secret without asking; plays once
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .auth: return "Key or password needed"
+        case .agentWaiting: return "Agent waiting on you"
+        case .secretAccess: return "Agent touched a secret"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .auth: return "Security key touch, keychain, Touch ID, PIN"
+        case .agentWaiting: return "Claude Code is asking for your approval"
+        case .secretAccess: return "Auto-approved: keychain, 1Password, ~/.ssh, .env, vault. Plays once"
+        }
+    }
+
+    var styleKey: String { self == .auth ? "alertStyle" : "\(rawValue)Style" }
+    var colorKey: String { self == .auth ? "flashColor" : "\(rawValue)Color" }
+
+    var defaultStyle: AlertStyle {
+        switch self {
+        case .auth: return .comet
+        case .agentWaiting: return .heartbeat
+        case .secretAccess: return .targetLock
+        }
+    }
+
+    var defaultColor: FlashColor {
+        switch self {
+        case .auth: return .amber
+        case .agentWaiting: return .ultraviolet
+        case .secretAccess: return .crimson
+        }
+    }
+}
+
 enum ReminderInterval: Int, CaseIterable, Identifiable {
     case off = 0
     case fifteen = 15
@@ -134,6 +180,14 @@ final class FlashSettings {
 
     var flashColor: FlashColor {
         FlashColor(rawValue: defaults.string(forKey: "flashColor") ?? "") ?? .amber
+    }
+
+    func style(for kind: AlertKind) -> AlertStyle {
+        AlertStyle(rawValue: defaults.string(forKey: kind.styleKey) ?? "") ?? kind.defaultStyle
+    }
+
+    func color(for kind: AlertKind) -> FlashColor {
+        FlashColor(rawValue: defaults.string(forKey: kind.colorKey) ?? "") ?? kind.defaultColor
     }
 
     var reminderInterval: ReminderInterval {
@@ -166,6 +220,12 @@ final class FlashSettings {
     /// the Mac asks for secrets (dialogs instead of the terminal).
     var routeSSHPrompts: Bool {
         defaults.bool(forKey: "routeSSHPrompts")
+    }
+
+    /// Claude Code hook events (tools/flash-agent-hook). Defaults on; the
+    /// hook itself is only installed when you add it to Claude's settings.
+    var watchAgents: Bool {
+        defaults.object(forKey: "watchAgents") as? Bool ?? true
     }
 
     /// Commit / push log in the menu-bar panel. Defaults on.
