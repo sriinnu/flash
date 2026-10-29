@@ -158,6 +158,20 @@ notarize() {  # $1 = file to submit
     say "notarized ✓ ($id)"
 }
 
+staple() {  # $1 = notarized .app or .dmg
+    # Stapling fetches the ticket from Apple's CDN, which drops connections
+    # now and then (v0.3.1's first run died on NSURLError -1005 after both
+    # notarizations had passed). The ticket is already issued; just retry.
+    local try
+    for try in 1 2 3 4 5; do
+        xcrun stapler staple "$1" && xcrun stapler validate "$1" && return 0
+        [[ $try -eq 5 ]] && break
+        say "staple attempt $try failed for $(basename "$1"), retrying in $((try * 10))s"
+        sleep $((try * 10))
+    done
+    die "couldn't staple $(basename "$1") after 5 attempts"
+}
+
 NOTARIZED=0
 if [[ $SIGNED -eq 1 && $CAN_NOTARIZE -eq 1 ]]; then
     # notarytool wants an archive; staple the ticket onto the .app itself so
@@ -165,8 +179,7 @@ if [[ $SIGNED -eq 1 && $CAN_NOTARIZE -eq 1 ]]; then
     ditto -c -k --keepParent "$APP" "$DIST/notarize.zip"
     notarize "$DIST/notarize.zip"
     rm "$DIST/notarize.zip"
-    xcrun stapler staple "$APP"
-    xcrun stapler validate "$APP"
+    staple "$APP"
     # What a user's Mac will decide on first launch: must say "Notarized Developer ID".
     spctl --assess --type execute -vv "$APP"
     NOTARIZED=1
@@ -191,8 +204,7 @@ if [[ $SIGNED -eq 1 ]]; then
 fi
 if [[ $NOTARIZED -eq 1 ]]; then
     notarize "$DMG"
-    xcrun stapler staple "$DMG"
-    xcrun stapler validate "$DMG"
+    staple "$DMG"
 fi
 
 ( cd "$DIST" && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")" > SHA256SUMS )
