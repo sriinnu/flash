@@ -110,12 +110,15 @@ enum InboxRouter {
             guard let id = fields["id"], recentlyEnded[id] == nil else { return }
             let kind = fields["kind"] ?? "prompt"
             Log.write("[inbox] prompt.begin \(kind) id=\(id) by \(actor.label.isEmpty ? "?" : actor.label)")
-            FlashController.shared.trigger("prompt:\(id)")
+            // An agent asking for approval (Ribhu, or any agent without
+            // Claude-style hooks) gets the agent look, not the key look.
+            let agentApproval = kind == "agent-approval"
+            FlashController.shared.trigger("prompt:\(id)", kind: agentApproval ? .agentWaiting : .auth)
             ActivityLog.shared.record(ActivityEvent(
-                kind: .prompt,
-                repo: nil,
+                kind: agentApproval ? .agentWaiting : .prompt,
+                repo: fields["cwd"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0).lastPathComponent },
                 ref: nil,
-                summary: promptLabel(kind),
+                summary: agentApproval ? (fields["detail"].flatMap { $0.isEmpty ? nil : $0 } ?? "Agent is waiting on you") : promptLabel(kind),
                 sha: nil,
                 date: Date(),
                 actor: actor
