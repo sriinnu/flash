@@ -8,7 +8,8 @@
 #
 # Version comes from Resources/Info.plist (CFBundleShortVersionString) — one
 # source of truth. The build number is the commit count, so it only ever
-# goes up. Sriinnu: bump the plist, commit, then tag/run this.
+# goes up. Sriinnu: bump the plist, commit, then `git tag -s` + push the tag.
+# --publish refuses a tag that isn't signed by a key in .github/allowed_signers.
 #
 # Signing is picked from the environment, best available wins:
 #
@@ -32,7 +33,7 @@ PUBLISH=0
 for arg in "$@"; do
     case "$arg" in
         --publish) PUBLISH=1 ;;
-        -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
         *) echo "unknown argument: $arg" >&2; exit 64 ;;
     esac
 done
@@ -67,10 +68,17 @@ if [[ $PUBLISH -eq 1 ]]; then
     if gh release view "$TAG" >/dev/null 2>&1; then
         die "release $TAG already exists — bump CFBundleShortVersionString"
     fi
-    # Locally, gh tags HEAD on GitHub, so GitHub has to have that commit.
-    if [[ -z "${CI:-}" && -z "$(git branch -r --contains HEAD 2>/dev/null)" ]]; then
-        die "HEAD isn't pushed — push it first so the tag points at a commit GitHub has"
-    fi
+    # Only a tag signed by a hardware key (.github/allowed_signers) ships.
+    # Fetch it from origin rather than trusting the local ref: that's what
+    # the release will point at, and actions/checkout can strip an annotated
+    # tag down to a lightweight one, signature and all.
+    git fetch --quiet --force origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null \
+        || die "no $TAG on origin — git tag -s $TAG -m 'Flash $VERSION' && git push origin $TAG"
+    [[ "$(git rev-parse "$TAG^{commit}")" == "$(git rev-parse HEAD)" ]] \
+        || die "$TAG points at $(git rev-parse --short "$TAG^{commit}"), not HEAD — check out the tag"
+    git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen \
+        -c gpg.ssh.allowedSignersFile=.github/allowed_signers verify-tag "$TAG" \
+        || die "$TAG isn't signed by a key in .github/allowed_signers — refusing to publish"
     # Release assets on a private repo 404 for everyone else, including brew.
     if [[ "$(gh repo view --json visibility --jq .visibility 2>/dev/null)" != "PUBLIC" ]]; then
         say "warning: repo isn't public, so only collaborators can download this release"
@@ -228,9 +236,9 @@ echo "   signed: $([[ $SIGNED -eq 1 ]] && echo 'Developer ID' || echo 'ad-hoc') 
 # ── 7. Publish ──────────────────────────────────────────────────────────
 if [[ $PUBLISH -eq 1 ]]; then
     say "publishing GitHub release $TAG"
-    # --target pins the tag to the exact commit built, if it doesn't exist yet.
+    # --verify-tag: never let gh mint an unsigned tag on its own.
     gh release create "$TAG" "$DMG" "$ZIP" "$DIST/SHA256SUMS" \
         --title "Flash $VERSION" \
         --notes-file "$NOTES" \
-        --target "$(git rev-parse HEAD)"
+        --verify-tag
 fi

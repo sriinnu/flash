@@ -110,7 +110,7 @@ Version lives in **one place**: `CFBundleShortVersionString` in `Resources/Info.
 
 ```sh
 # bump Info.plist → commit → tag
-git tag v0.3 && git push origin v0.3      # CI: .github/workflows/release.yml publishes
+git tag -s v0.3 -m "Flash 0.3" && git push origin v0.3   # signed; CI: .github/workflows/release.yml publishes
 # or locally
 make publish                              # needs gh + the env below
 ```

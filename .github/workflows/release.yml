@@ -1,7 +1,13 @@
 # Push a tag matching Info.plist's version (e.g. v0.3) and this builds,
 # signs, notarizes and publishes Flash to GitHub Releases.
 #
-#   git tag v0.3 && git push origin v0.3
+#   git tag -s v0.3 -m "Flash 0.3" && git push origin v0.3
+#
+# The tag must be signed by a key in .github/allowed_signers, or release.sh
+# refuses to publish. The dmg/zip get a build-provenance attestation, so
+# anyone can check they came from this workflow:
+#
+#   gh attestation verify Flash-0.3.dmg --repo sriinnu/flash
 #
 # Signing + notarization kick in only when the secrets below exist; without
 # them the release is still published, ad-hoc signed, with first-launch
@@ -29,7 +35,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # create the release + upload assets
+  contents: write       # create the release + upload assets
+  id-token: write       # sigstore signing for the provenance attestation
+  attestations: write   # store it on the repo
 
 # Two tags pushed together must not race each other into the tap.
 concurrency:
@@ -92,6 +100,14 @@ jobs:
           else
             tools/release.sh
           fi
+
+      - name: Attest build provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: |
+            dist/*.dmg
+            dist/*.zip
 
       # Only after a real, published release: the cask points at its dmg.
       - name: Update Homebrew tap
