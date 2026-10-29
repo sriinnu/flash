@@ -1,0 +1,8 @@
+# Keys allowed to sign release tags (tools/release.sh runs `git verify-tag`
+# against this file before publishing). Hardware-backed keys only: a stolen
+# laptop disk or a leaked software key can't cut a release.
+#
+# Titan security key (FIDO, touch per signature)
+hello@srinivas.dev sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBPtM/7CP0XHbz7KprpEcA34O3I89t19Xi4gf2RmYlsdt7Dpljtx6LKifk2U94lz7NlhO2qE3iw2YfYWth8YXNkQAAAAEc3NoOg== sriinnu@github-signing-mac
+# Secure Enclave key (Secretive, Touch ID)
+hello@srinivas.dev ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOMjMaDmOQv++hRvmj6NIRzhy0hoUOdc6JhzEPIoVBzJGRlNXY41ryeDe+OGczGdiCoN/hlCQihuhiwlmpwUQ6M=

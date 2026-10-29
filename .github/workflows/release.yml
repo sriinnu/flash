@@ -1,7 +1,13 @@
 # Push a tag matching Info.plist's version (e.g. v0.3) and this builds,
 # signs, notarizes and publishes Flash to GitHub Releases.
 #
-#   git tag v0.3 && git push origin v0.3
+#   git tag -s v0.3 -m "Flash 0.3" && git push origin v0.3
+#
+# The tag must be signed by a key in .github/allowed_signers, or release.sh
+# refuses to publish. The dmg/zip get a build-provenance attestation, so
+# anyone can check they came from this workflow:
+#
+#   gh attestation verify Flash-0.3.dmg --repo sriinnu/flash
 #
 # Signing + notarization kick in only when the secrets below exist; without
 # them the release is still published, ad-hoc signed, with first-launch
@@ -13,6 +19,13 @@
 #   NOTARY_KEY_P8_BASE64      base64 of the App Store Connect API key (AuthKey_XXXX.p8)
 #   NOTARY_KEY_ID             that key's Key ID
 #   NOTARY_ISSUER             Issuer ID from the same App Store Connect page
+#   HOMEBREW_TAP_TOKEN        fine-grained PAT on sriinnu/homebrew-tap only,
+#                             Contents + Pull requests: read & write. Without
+#                             it the cask step is skipped.
+#
+# All of them are secrets on the "release" environment, not the repo:
+# `make release-secrets` puts them there. Actions are pinned to commit SHAs
+# because this job holds the signing certificate.
 
 name: Release
 
@@ -22,17 +35,28 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # create the release + upload assets
+  contents: write       # create the release + upload assets
+  id-token: write       # sigstore signing for the provenance attestation
+  attestations: write   # store it on the repo
+
+# Two tags pushed together must not race each other into the tap.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: macos-15
+    # Secrets live on the "release" environment, which only main and v* tags
+    # can deploy to: no other branch's workflow run can read them.
+    environment: release
     env:
       # Step-level `if:` can't see secrets, so resolve "is it configured?" once here.
       HAS_P12: ${{ secrets.DEVELOPER_ID_P12_BASE64 != '' }}
       HAS_P8: ${{ secrets.NOTARY_KEY_P8_BASE64 != '' }}
+      HAS_TAP: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           fetch-depth: 0   # full history: build number = commit count, changelog = log since last tag
 
@@ -77,9 +101,24 @@ jobs:
             tools/release.sh
           fi
 
+      - name: Attest build provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: |
+            dist/*.dmg
+            dist/*.zip
+
+      # Only after a real, published release: the cask points at its dmg.
+      - name: Update Homebrew tap
+        if: github.ref_type == 'tag' && env.HAS_TAP == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: tools/update-cask.sh
+
       - name: Keep artifacts on the run
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: flash-release
           path: |
