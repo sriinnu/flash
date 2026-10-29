@@ -38,6 +38,11 @@ final class FlashController: ObservableObject {
     private var successResetTask: Task<Void, Never>?
     private var watchdogTasks: [String: Task<Void, Never>] = [:]
 
+    /// Shortest an alert stays up before a touch may cut it. A ready hand
+    /// answers inside a second, and the comet then faded in 0.18s: it looked
+    /// like Flash never fired. Slower touches are unaffected.
+    private let minimumAlertTime: TimeInterval = 1.2
+
     /// Longest we'll trust a trigger to resolve itself. If an engine dies
     /// mid-prompt (killed process, crashed helper, unplugged key) without
     /// ever calling `resolve`, the id would otherwise stay in `activeTriggers`
@@ -67,8 +72,15 @@ final class FlashController: ObservableObject {
 
         if success {
             recordTouch()
-            dismissAlerts()
-            if FlashSettings.shared.successRipple { celebrateAll() }
+            // Only the windows up now: an alert that starts during the wait
+            // must keep running.
+            let shown = alertWindows
+            let wait = minimumAlertTime - Date().timeIntervalSince(lastAlertAt ?? .distantPast)
+            Task { [weak self] in
+                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                shown.forEach { $0.fadeOut() }
+                if FlashSettings.shared.successRipple { self?.celebrateAll() }
+            }
             iconState = .success
             successResetTask?.cancel()
             successResetTask = Task { [weak self] in
