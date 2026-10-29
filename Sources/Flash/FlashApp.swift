@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let quickToggleItem = NSMenuItem()
     private var cancellables = Set<AnyCancellable>()
     private var settingsWindow: NSWindow?
+    private var activityWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -74,6 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.openSettings()
+            },
+            openActivity: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.openActivity()
             },
             quit: { NSApp.terminate(nil) }
         ))
@@ -208,19 +213,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Flash Settings"
             window.contentView = hostingView
             window.isReleasedWhenClosed = false
-            // Centre inside the *visible* frame (menu bar and Dock excluded).
-            // `center()` sits windows above centre, too close to the top edge.
-            if let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
-                let frame = window.frame
-                window.setFrameOrigin(NSPoint(
-                    x: visible.midX - frame.width / 2,
-                    y: visible.minY + (visible.height - frame.height) / 2
-                ))
-            }
+            centerInVisibleFrame(window)
             settingsWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Same hand-owned window approach as Settings, for the same reasons.
+    private func openActivity() {
+        if activityWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: ActivityView.windowSize),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Flash Activity"
+            window.contentView = NSHostingView(rootView: ActivityView(activity: ActivityLog.shared))
+            window.isReleasedWhenClosed = false
+            centerInVisibleFrame(window)
+            activityWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        activityWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Centre inside the *visible* frame (menu bar and Dock excluded).
+    /// `center()` sits windows above centre, too close to the top edge.
+    private func centerInVisibleFrame(_ window: NSWindow) {
+        guard let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
+        let frame = window.frame
+        window.setFrameOrigin(NSPoint(
+            x: visible.midX - frame.width / 2,
+            y: visible.minY + (visible.height - frame.height) / 2
+        ))
     }
 
     @objc private func quitApp() {

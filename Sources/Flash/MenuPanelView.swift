@@ -14,7 +14,7 @@ import SwiftUI
 ///   │ [⇉] [◌] [⌖] [∿] [⚡]          │
 ///   │ [▶ Test flash] [✓ Test succ] │
 ///   ├──────────────────────────────┤
-///   │ RECENT                 Clear │  commits / pushes / prompts,
+///   │ RECENT               All (12) │  commits / pushes / prompts,
 ///   │ ↑ Pushed origin/main  Claude │  who did it when hooks know
 ///   ├──────────────────────────────┤
 ///   │ ⚙ Settings…              ⌘,  │
@@ -29,6 +29,7 @@ struct MenuPanelView: View {
     @ObservedObject var watch: WatchManager
     @ObservedObject var activity: ActivityLog
     let openSettings: () -> Void
+    let openActivity: () -> Void
     let quit: () -> Void
 
     @AppStorage("alertStyle") private var alertStyle: AlertStyle = .comet
@@ -197,7 +198,7 @@ struct MenuPanelView: View {
 extension MenuPanelView {
 
     /// Oversight, not alerting: what agents (and you) did with your repos,
-    /// plus which prompts fired. Five newest; the log keeps 50.
+    /// plus which prompts fired. Five newest; "All" opens the week.
     var recentActivity: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -207,10 +208,11 @@ extension MenuPanelView {
                     .foregroundStyle(.secondary)
                 Spacer()
                 if !activity.events.isEmpty {
-                    Button("Clear") { activity.clear() }
+                    Button("All (\(activity.events.count))", action: openActivity)
                         .buttonStyle(.plain)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .help("Everything from the last 7 days")
                 }
             }
 
@@ -228,8 +230,10 @@ extension MenuPanelView {
     }
 }
 
-private struct ActivityRow: View {
+struct ActivityRow: View {
     let event: ActivityEvent
+    /// "14:32" instead of "4m ago": the week view is grouped by day already.
+    var absoluteTime = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -276,7 +280,9 @@ private struct ActivityRow: View {
 
     /// "flash · main · 4m ago"
     private var detail: String {
-        let when = event.date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))
+        let when = absoluteTime
+            ? event.date.formatted(date: .omitted, time: .shortened)
+            : event.date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))
         let place: [String] = [event.repo, event.kind == .commit ? event.ref : nil].compactMap { $0 }
         return (place + [when]).joined(separator: " · ")
     }
