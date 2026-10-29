@@ -19,31 +19,9 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 
 ## Architecture
 
-```
-            ┌──────────────────── detection ─────────────────────┐
- FIDO key ──────► FidoSniffer (IOHID, CTAPHID keepalive)          │
- git sign ──────► git-ssh-keygen-flash ─SIGUSR1/2─► SignTrigger   │
- auth dialogs ──► AuthPromptWatcher (window owners, 750ms poll)   │
- askpass/hooks ─► flash-notify ─file─► EventInbox ─► InboxRouter  │
-            └──────────────────────────┬─────────────────────────┘
-                                       │ trigger(id) / resolve(id, success)
-                                ▼
-                  FlashController  (@MainActor, one per app)
-                   • active trigger set + watchdog (45s)
-                   • reminder → escalates to Classic
-                   • icon state, touch stats
-                                │ one OverlayWindow per NSScreen
-                                ▼
-       OverlayWindow ─hosts─► OverlayView subclass (one effect, single use)
-                              Classic · Comet · Marquee · TargetLock
-                              Heartbeat · SuccessRipple
-                                ▲
-                  BorderGeometry: one rail every effect draws on
+![Flash architecture](docs/architecture.svg)
 
- repos (FSEvents) ─► RepoActivityWatcher ─┐
- hooks (attrib) ──► InboxRouter ──────────┴─► ActivityLog ─► menu-bar panel
-                                              (never flashes)
-```
+Both diagrams in this guide are drawn with inkline: edit `docs/*.html`, then re-export the `.svg` next to it with inkline's `export_svg.py`.
 
 **Rule of thumb for new detectors:** only something that is *blocked on the user* calls `FlashController.trigger`. Everything else (commits, pushes, stats) goes to `ActivityLog`. Firing the full-screen alert for things that don't need the user trains them to ignore it.
 
@@ -75,6 +53,7 @@ Logs go to `~/Library/Logs/Flash.log`. They're always written, including when th
 | `tools/update-cask.sh` + `packaging/homebrew/` | Homebrew cask template → `sriinnu/homebrew-tap` |
 | `tools/release.sh` | Release pipeline (build → sign → notarize → dmg/zip → GitHub) |
 | `tools/flash-selftest` | `make selftest`: triggers each detection path for real, records pass/fail |
+| `docs/*.html` → `docs/*.svg` | Diagram sources (inkline) and the SVGs this guide embeds. They follow the reader's light/dark theme |
 
 ### Detection notes
 
@@ -115,7 +94,13 @@ git tag -s v0.3 -m "Flash 0.3" && git push origin v0.3   # signed; CI: .github/w
 make publish                              # needs gh + the env below
 ```
 
-CI refuses a tag that doesn't match the plist. Running the workflow manually (*Actions → Release → Run workflow*) is a dry run: it builds and uploads artifacts but doesn't publish.
+![Flash release pipeline](docs/release-pipeline.svg)
+
+**Only a hardware-signed tag ships.** `release.sh --publish` fetches the tag from origin, checks it points at HEAD, and runs `git verify-tag` against `.github/allowed_signers` (the Titan and Secure Enclave keys, no software keys). It then publishes with `gh release create --verify-tag`, so `gh` never mints an unsigned tag of its own. CI also refuses a tag that doesn't match the plist.
+
+**Provenance.** CI attests the dmg and zip with `actions/attest-build-provenance`. Anyone can check a download came from this workflow: `gh attestation verify Flash-<v>.dmg --repo sriinnu/flash`.
+
+Running the workflow manually (*Actions → Release → Run workflow*) is a dry run: it builds and uploads artifacts but doesn't publish or attest.
 
 | Where | Signing | Notarization |
 |---|---|---|
@@ -124,6 +109,8 @@ CI refuses a tag that doesn't match the plist. Running the workflow manually (*A
 
 **Set them all at once:** `make release-secrets`. It finds the Developer ID identity in your keychain and reads the rest from the Apple dev vault in iCloud Drive (`apple-dev-account/`: the shared `developer-id.p12` and its password, plus `flash/AuthKey_*.p8`, `key_id.md`, `issuer.md`). Without the vault, it falls back to the newest `.p12`/`.p8` in Downloads, Desktop or Documents. It checks that the `.p12` password is right, offers to create the tap repo, and uploads everything with `gh secret set --env release`, so nothing is echoed or written to disk. The certificate and API key are per Apple team, so ones from other apps work unchanged.
 
+Without these secrets the release still ships, ad-hoc signed and not notarized, and the notes tell users how to approve the first launch. The tap step is skipped too.
+
 The secrets live on the **`release` environment**, not the repo. Only `main` and `v*` tags can deploy to it, so a workflow run from any other branch can't read the signing certificate. The workflow's actions are pinned to commit SHAs for the same reason, and Dependabot keeps the pins current.
 
 **Notarization** fails loudly. On a rejection, `release.sh` prints Apple's log with the exact reasons. On success it staples, runs `stapler validate`, and runs `spctl --assess`, which should say "Notarized Developer ID".
@@ -131,8 +118,6 @@ The secrets live on the **`release` environment**, not the repo. Only `main` and
 **Homebrew.** After a tagged release publishes, CI runs `tools/update-cask.sh`. It renders `packaging/homebrew/flash.rb.template` with the version and the dmg's sha256, then downloads the dmg anonymously and checks it against that sha256, the way `brew install` will. The tap's `main` requires PRs and signed commits and is shared with the other apps, so the script follows their convention: branch `flash-<version>`, commit via GraphQL `createCommitOnBranch` (GitHub-signed; REST contents-API commits come out unsigned and the tap would refuse them), PR `flash <version>`, squash merge. Re-running it is safe. It needs `HOMEBREW_TAP_TOKEN`: a fine-grained PAT on the tap repo only, with Contents and Pull requests set to read & write. Preview locally with `make cask`.
 
 **Tags and releases are immutable.** A ruleset blocks moving or deleting `v*` tags, and the repo has immutable releases on, so assets can't be swapped after publishing. A bad release gets a new version, never a re-upload.
-
-Without them, the release still ships ad-hoc signed, and the notes tell users how to approve the first launch.
 
 ## Gotchas
 
