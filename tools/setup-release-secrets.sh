@@ -141,7 +141,6 @@ elif confirm "Create public repo $TAP_REPO now?"; then
 else
     echo "  Skipping. Create it before the first tagged release."
 fi
-tap_token="$(ask_secret "Fine-grained token on $TAP_REPO only (Contents + Pull requests: read & write), empty to skip")"
 
 # ── Upload ───────────────────────────────────────────────────────────────
 gh api "repos/$REPO/environments/$ENVIRONMENT" >/dev/null 2>&1 \
@@ -153,9 +152,6 @@ printf '%s' "$developer_id" | set_secret DEVELOPER_ID
 base64 -i "$p8" | set_secret NOTARY_KEY_P8_BASE64
 printf '%s' "$key_id" | set_secret NOTARY_KEY_ID
 printf '%s' "$issuer" | set_secret NOTARY_ISSUER
-if [[ -n "$tap_token" ]]; then
-    printf '%s' "$tap_token" | set_secret HOMEBREW_TAP_TOKEN
-fi
 
 # ── Optional: local notarization profile ─────────────────────────────────
 bold "Local releases (optional)"
