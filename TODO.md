@@ -83,8 +83,20 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
 - [ ] Sign with Developer ID (user has Apple dev account)
 - [ ] Notarize + staple
 - [ ] `make release` target: versioned zip / dmg
+- [ ] **Move helper scripts out of the app bundle** (hardening, not a fix for the dialog below).
+      Claude's settings run `flash-agent-hook` from inside `/Applications/Flash.app`, and
+      `SSH_ASKPASS` is forced to the bundled `flash-askpass`, so both depend on the bundle being
+      allowed to run. On launch, copy them to `~/Library/Application Support/Flash/bin`, point
+      the configs there, and refresh the copies on update.
 
 ## 🧠 Known gotchas / dev notes
+
+- **"Apple could not verify Flash.app" after reboot (2026-11-02, v0.3.2, macOS 27.2 beta).** The
+  login launch got `Prompt shown (6, 0)` and Done killed Flash. Root cause unknown. A fresh
+  quarantined copy of the same release got the normal "Apple checked it" dialog `(5, 0)`, so the
+  published build isn't implicated. Workaround: `xattr -dr com.apple.quarantine /Applications/Flash.app`.
+  Not tested: full cask install + reboot on a clean Mac. If it recurs, read
+  `syspolicyd` before dismissing the dialog. Use `/usr/bin/log`, since `log` is a zsh builtin.
 
 - CTAPHID report may carry a leading report-ID byte on some stacks — parser checks offset 0
   then retries at offset 1. If a future key isn't detected, log the raw report first.
