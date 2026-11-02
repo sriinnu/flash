@@ -28,15 +28,10 @@ TAP_REPO="${TAP_REPO:-sriinnu/homebrew-tap}"
 CASK_PATH="Casks/flash.rb"
 TEMPLATE="packaging/homebrew/flash.rb.template"
 
-plist_version() {
-    if [[ -x /usr/libexec/PlistBuddy ]]; then
-        /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist
-    else   # Linux / CI without PlistBuddy: the plist is plain XML
-        sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist
-    fi
-}
+# macOS only: the notarization check below needs spctl.
+[[ "$(uname)" == "Darwin" ]] || die "update-cask.sh runs on macOS only (it checks notarization with spctl)"
 
-VERSION="$(plist_version)"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
 [[ -n "$VERSION" ]] || die "couldn't read CFBundleShortVersionString"
 DMG="Flash-${VERSION}.dmg"
 

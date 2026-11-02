@@ -20,9 +20,12 @@ TAG="${1:-}"
 RELEASE_KEY_FINGERPRINTS="SHA256:jWV8C3RG95sm64vjVhs1vQj48aFBAsgmlPsCm/5zezw SHA256:L01yveJ19ozoWLKZfrgeyft/VqmKka1xF/qZ8o7Z+CM"
 
 REF="refs/tags/$TAG"
-[[ "$(git cat-file -t "$REF" 2>/dev/null)" == "tag" ]] || die "$TAG isn't an annotated tag"
 
-git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+# From origin, not the local ref: that's what ships, and actions/checkout can
+# strip an annotated tag down to a lightweight one, signature and all.
+git fetch --no-tags --quiet --force origin "+$REF:$REF" "+refs/heads/main:refs/remotes/origin/main" \
+    || die "couldn't fetch $TAG and main from origin"
+[[ "$(git cat-file -t "$REF" 2>/dev/null)" == "tag" ]] || die "$TAG isn't an annotated tag"
 
 SIGNERS="$(mktemp)"
 trap 'rm -f "$SIGNERS"' EXIT
@@ -32,7 +35,7 @@ git show origin/main:.github/allowed_signers > "$SIGNERS"
 # would still trust it, so it has to be checked too.
 while read -r principal keytype key _comment || [[ -n "${principal:-}" ]]; do
     [[ -z "$principal" || "$principal" == \#* ]] && continue
-    fpr="$(printf '%s %s\n' "$keytype" "$key" | ssh-keygen -lf - | awk '{print $2}')"
+    fpr="$(printf '%s %s\n' "$keytype" "$key" | ssh-keygen -E sha256 -lf - | awk '{print $2}')"
     [[ " $RELEASE_KEY_FINGERPRINTS " == *" $fpr "* ]] \
         || die "allowed_signers on main has a key that isn't pinned here: $fpr"
 done < "$SIGNERS"

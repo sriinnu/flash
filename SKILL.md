@@ -52,7 +52,7 @@ Point `gpg.ssh.program` at `/Applications/Flash.app/Contents/Resources/git-ssh-k
 
 ## Releasing
 
-To release: bump the plist through a PR, `git tag -s vX.Y -m "Flash X.Y" && git push origin vX.Y`, then `gh workflow run release.yml --ref vX.Y -f tag=vX.Y -f publish=true`, approve the `release` deployment, and run `make publish-cask` once the release looks right. A tag has to be signed by a key in `allowed_signers` on `main` and sit on `main`; `tools/verify-release-tag.sh` enforces that.
+To release: bump the plist through a PR, `git tag -s vX.Y -m "Flash X.Y" && git push origin vX.Y`, then `gh workflow run release.yml --ref vX.Y -f tag=vX.Y -f publish=true`, approve the `release` deployment, and run `make publish-cask` once the release looks right. A tag has to be signed by a key in `.github/allowed_signers` on `main` and sit on `main`; `tools/verify-release-tag.sh` enforces that.
 
 - **The cask only works while `sriinnu/flash` is public.** Release assets on a private repo 404 for anyone without access, brew included. `update-cask.sh` downloads the dmg anonymously and checks its sha256 before touching the tap, so a private repo fails that step instead of shipping a broken cask. Don't work around the check.
 - `release.sh --publish` checks its preconditions (release doesn't exist, HEAD is pushed) *before* building, because notarization takes minutes.
