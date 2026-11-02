@@ -9,13 +9,15 @@
 # Version comes from Resources/Info.plist (CFBundleShortVersionString) — one
 # source of truth. The build number is the commit count, so it only ever
 # goes up. Sriinnu: bump the plist, commit, then `git tag -s` + push the tag.
-# --publish refuses a tag that isn't signed by a key in .github/allowed_signers.
+# --publish refuses a tag that isn't signed by a key in .github/allowed_signers,
+# and refuses to run without Developer ID and notary credentials: every
+# published release is signed and notarized. Ad-hoc is for local builds only.
 #
-# Signing is picked from the environment, best available wins:
+# Signing is picked from the environment:
 #
 #   DEVELOPER_ID="Developer ID Application: Name (TEAMID)"
 #       → hardened-runtime Developer ID signature. Without it: ad-hoc, which
-#         runs fine but Gatekeeper makes users approve it on first launch.
+#         runs fine locally but can't be published.
 #
 #   Notarization (needs DEVELOPER_ID too), either:
 #     NOTARY_PROFILE=<name>          keychain profile from
@@ -61,9 +63,23 @@ if [[ -z "${CI:-}" && -n "$(git status --porcelain)" ]]; then
     die "working tree is dirty — commit first so the release matches a real commit"
 fi
 
+NOTARY_ARGS=()
+CAN_NOTARIZE=0
+if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+    NOTARY_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+    CAN_NOTARIZE=1
+elif [[ -n "${NOTARY_KEY_PATH:-}" && -n "${NOTARY_KEY_ID:-}" && -n "${NOTARY_ISSUER:-}" ]]; then
+    NOTARY_ARGS=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
+    CAN_NOTARIZE=1
+fi
+
 # Check publish preconditions before the slow part (build + two notarizations),
 # not after it.
 if [[ $PUBLISH -eq 1 ]]; then
+    # Every published release is signed and notarized. No fallback: v0.3 went
+    # out ad-hoc because the secrets weren't set yet, and nothing stopped it.
+    [[ -n "${DEVELOPER_ID:-}" ]] || die "--publish needs DEVELOPER_ID — releases are never ad-hoc"
+    [[ $CAN_NOTARIZE -eq 1 ]] || die "--publish needs notary credentials (NOTARY_PROFILE or NOTARY_KEY_*) — releases are always notarized"
     command -v gh >/dev/null || die "--publish needs the GitHub CLI (brew install gh)"
     if gh release view "$TAG" >/dev/null 2>&1; then
         die "release $TAG already exists — bump CFBundleShortVersionString"
@@ -132,16 +148,6 @@ fi
 codesign --verify --strict --verbose=2 "$APP"
 
 # ── 4. Notarize the app (optional) ──────────────────────────────────────
-NOTARY_ARGS=()
-CAN_NOTARIZE=0
-if [[ -n "${NOTARY_PROFILE:-}" ]]; then
-    NOTARY_ARGS=(--keychain-profile "$NOTARY_PROFILE")
-    CAN_NOTARIZE=1
-elif [[ -n "${NOTARY_KEY_PATH:-}" && -n "${NOTARY_KEY_ID:-}" && -n "${NOTARY_ISSUER:-}" ]]; then
-    NOTARY_ARGS=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
-    CAN_NOTARIZE=1
-fi
-
 notarize() {  # $1 = file to submit
     say "notarizing $(basename "$1") — usually a few minutes"
     local out id status
@@ -218,12 +224,6 @@ PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || git describe
     echo
     echo "1. Download **Flash-${VERSION}.dmg**, open it, drag **Flash** into **Applications**."
     echo "2. Launch Flash — it lives in the menu bar (bolt-shield icon), no Dock icon."
-    if [[ $NOTARIZED -eq 0 ]]; then
-        echo
-        echo "> **First launch:** this build isn't notarized by Apple, so macOS will block it once."
-        echo "> Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to Flash."
-        echo "> Or in Terminal: \`xattr -dr com.apple.quarantine /Applications/Flash.app\`"
-    fi
     echo
     echo "Requires macOS 14+ · universal (Apple Silicon + Intel) · build $BUILD"
     echo
@@ -246,7 +246,17 @@ say "done:"
 echo "   signed: $([[ $SIGNED -eq 1 ]] && echo 'Developer ID' || echo 'ad-hoc')   notarized: $([[ $NOTARIZED -eq 1 ]] && echo yes || echo no)"
 
 # ── 7. Publish ──────────────────────────────────────────────────────────
+require_notarized() {  # $1 = file, rest = spctl assessment options
+    local file="$1" out
+    shift
+    out="$(spctl --assess -vv "$@" "$file" 2>&1)" || die "$(basename "$file") failed Gatekeeper — refusing to publish: $out"
+    [[ "$out" == *"source=Notarized Developer ID"* ]] || die "$(basename "$file") isn't notarized — refusing to publish: $out"
+}
+
 if [[ $PUBLISH -eq 1 ]]; then
+    # Judge what actually ships, not the flags that say how it was built.
+    require_notarized "$APP" --type execute
+    require_notarized "$DMG" --type open --context context:primary-signature
     say "publishing GitHub release $TAG"
     # --verify-tag: never let gh mint an unsigned tag on its own.
     gh release create "$TAG" "$DMG" "$ZIP" "$DIST/SHA256SUMS" \
