@@ -9,9 +9,9 @@
 #
 #   gh attestation verify Flash-0.3.dmg --repo sriinnu/flash
 #
-# Signing + notarization kick in only when the secrets below exist; without
-# them the release is still published, ad-hoc signed, with first-launch
-# instructions in the notes.
+# Every published release is signed and notarized: without the secrets below,
+# release.sh refuses to publish and this job fails. A manual dry run still
+# builds without them, ad-hoc signed.
 #
 #   DEVELOPER_ID_P12_BASE64   base64 of the exported "Developer ID Application" .p12
 #   DEVELOPER_ID_P12_PASSWORD password chosen when exporting that .p12
