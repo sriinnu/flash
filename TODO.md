@@ -80,9 +80,9 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
 
 ## 📦 Distribution (when solid)
 
-- [ ] Sign with Developer ID (user has Apple dev account)
-- [ ] Notarize + staple
-- [ ] `make release` target: versioned zip / dmg
+- [x] Sign with Developer ID
+- [x] Notarize + staple
+- [x] `make release` target: versioned zip / dmg
 - [ ] **Move helper scripts out of the app bundle** (hardening, not a fix for the dialog below).
       Claude's settings run `flash-agent-hook` from inside `/Applications/Flash.app`, and
       `SSH_ASKPASS` is forced to the bundled `flash-askpass`, so both depend on the bundle being
@@ -102,6 +102,6 @@ edges pulse 3–4 times and stop. One sequence per prompt, then it rearms.
   then retries at offset 1. If a future key isn't detected, log the raw report first.
 - Sniffer callbacks arrive on main runloop (commonModes). Keep it that way.
 - Finder caches app icons aggressively — after `make icon`, reinstall + `killall Finder`.
-- Ad-hoc signed; TCC (Accessibility) grants bind to the binary signature, so permission
-  survives rebuilds only until real signing changes. Expect one re-grant when Developer ID lands.
+- Releases are Developer ID signed; local builds are ad-hoc. TCC (Accessibility) grants bind to
+  the binary signature, so switching between the two re-prompts once.
 - `FidoSniffer` buffers are deallocated on stop(); restart path verified once — keep an eye.
