@@ -4,18 +4,19 @@
 # publish it to the tap.
 #
 #   tools/update-cask.sh --print            # just show the cask
-#   tools/update-cask.sh                    # PR it into $TAP_REPO and merge
+#   tools/update-cask.sh                    # check the release, PR it into $TAP_REPO, merge
 #
-# Version comes from Resources/Info.plist, the sha256 from dist/SHA256SUMS
-# (so run tools/release.sh first). The tap's main needs PRs and signed
+# Run by hand after a release, on your own gh login: CI holds no tap token, the
+# same way kosha holds no npm token and waits for `npm stage approve`. Version
+# comes from Resources/Info.plist, the sha256 from the release's own SHA256SUMS,
+# never a local build. The published dmg must be attested and notarized before
+# the tap moves. The tap's main needs PRs and signed
 # commits, and it's shared with the other apps, so this goes the same way
 # their bumps do: branch flash-<version> → commit via GraphQL
 # createCommitOnBranch (GitHub signs it) → PR "flash <version>" → squash
 # merge (GitHub signs that too). Safe to re-run: it reuses the branch/PR and stops if already current.
 #
 #   TAP_REPO   default sriinnu/homebrew-tap   → brew install --cask sriinnu/tap/flash
-#   GH_TOKEN   fine-grained token on TAP_REPO only: Contents + Pull requests
-#              read & write (CI: HOMEBREW_TAP_TOKEN)
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -27,21 +28,18 @@ TAP_REPO="${TAP_REPO:-sriinnu/homebrew-tap}"
 CASK_PATH="Casks/flash.rb"
 TEMPLATE="packaging/homebrew/flash.rb.template"
 
-plist_version() {
-    if [[ -x /usr/libexec/PlistBuddy ]]; then
-        /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist
-    else   # Linux / CI without PlistBuddy: the plist is plain XML
-        sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist
-    fi
-}
+# macOS only: the notarization check below needs spctl.
+[[ "$(uname)" == "Darwin" ]] || die "update-cask.sh runs on macOS only (it checks notarization with spctl)"
 
-VERSION="$(plist_version)"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
 [[ -n "$VERSION" ]] || die "couldn't read CFBundleShortVersionString"
 DMG="Flash-${VERSION}.dmg"
 
-[[ -f dist/SHA256SUMS ]] || die "dist/SHA256SUMS missing — run tools/release.sh first"
-SHA256="$(awk -v f="$DMG" '$2 == f { print $1 }' dist/SHA256SUMS)"
-[[ ${#SHA256} -eq 64 ]] || die "no sha256 for $DMG in dist/SHA256SUMS"
+RELEASE_URL="https://github.com/sriinnu/flash/releases/download/v$VERSION"
+sums="$(curl -fsSL --retry 3 "$RELEASE_URL/SHA256SUMS")" \
+    || die "can't read SHA256SUMS from the v$VERSION release. Is it published?"
+SHA256="$(printf '%s\n' "$sums" | awk -v f="$DMG" '$2 == f { print $1 }')"
+[[ ${#SHA256} -eq 64 ]] || die "no sha256 for $DMG in the release's SHA256SUMS"
 
 cask="$(sed -e "s/{{VERSION}}/$VERSION/" -e "s/{{SHA256}}/$SHA256/" "$TEMPLATE")"
 
@@ -51,19 +49,26 @@ if [[ "${1:-}" == "--print" ]]; then
 fi
 
 command -v gh >/dev/null || die "needs the GitHub CLI (gh)"
-[[ -n "${GH_TOKEN:-}" ]] || die "GH_TOKEN not set (needs Contents: write on $TAP_REPO)"
 
 # Fetch the dmg the way `brew install` will: anonymously. A private source
 # repo (or a missing asset) 404s here, and a cask pointing at it would break
 # every install. The checksum must match too, or brew refuses it.
 url="$(printf '%s\n' "$cask" | sed -n 's/^ *url "\(.*\)"$/\1/p' | sed "s/#{version}/$VERSION/g")"
 [[ "$url" == https://* ]] || die "couldn't read the url from $TEMPLATE"
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+tmp="$tmpdir/$DMG"
 curl -fsSL --retry 3 -o "$tmp" "$url" \
     || die "can't download $url anonymously. Is the repo public and the release published?"
 got="$(shasum -a 256 "$tmp" | awk '{ print $1 }')"
 [[ "$got" == "$SHA256" ]] || die "downloaded dmg sha256 $got ≠ SHA256SUMS $SHA256"
+
+# The tap's approval step: judge what users will download, not how it was built.
+gh attestation verify "$tmp" --repo sriinnu/flash >/dev/null \
+    || die "$DMG has no valid attestation from sriinnu/flash"
+assessment="$(spctl --assess -vv --type open --context context:primary-signature "$tmp" 2>&1)" \
+    || die "$DMG failed Gatekeeper: $assessment"
+[[ "$assessment" == *"source=Notarized Developer ID"* ]] || die "$DMG isn't notarized: $assessment"
 
 BRANCH="flash-$VERSION"
 TITLE="flash $VERSION"

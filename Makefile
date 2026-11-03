@@ -49,9 +49,13 @@ publish:
 release-secrets:
 	tools/setup-release-secrets.sh
 
-# Render the Homebrew cask for the built release (dist/ must exist). CI publishes it.
+# Render the Homebrew cask for the published release.
 cask:
 	tools/update-cask.sh --print
+
+# After checking a release: verify the published dmg and PR the cask into the tap.
+publish-cask:
+	tools/update-cask.sh
 
 # Guided test of every detection path (needs Flash running). Step N only: make selftest STEP=N
 selftest:
@@ -60,4 +64,4 @@ selftest:
 clean:
 	rm -rf .build $(APP) dist
 
-.PHONY: build bundle run open-app icon release publish release-secrets cask selftest clean
+.PHONY: build bundle run open-app icon release publish release-secrets cask publish-cask selftest clean

@@ -8,8 +8,9 @@
 #
 # Version comes from Resources/Info.plist (CFBundleShortVersionString) — one
 # source of truth. The build number is the commit count, so it only ever
-# goes up. Sriinnu: bump the plist, commit, then `git tag -s` + push the tag.
-# --publish refuses a tag that isn't signed by a key in .github/allowed_signers,
+# goes up. Sriinnu: bump the plist, commit, `git tag -s` + push the tag, then
+# dispatch the Release workflow from it (see .github/workflows/release.yml).
+# --publish refuses a tag that fails tools/verify-release-tag.sh,
 # and refuses to run without Developer ID and notary credentials: every
 # published release is signed and notarized. Ad-hoc is for local builds only.
 #
@@ -90,11 +91,7 @@ if [[ $PUBLISH -eq 1 ]]; then
     # tag down to a lightweight one, signature and all.
     git fetch --quiet --force origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null \
         || die "no $TAG on origin — git tag -s $TAG -m 'Flash $VERSION' && git push origin $TAG"
-    [[ "$(git rev-parse "$TAG^{commit}")" == "$(git rev-parse HEAD)" ]] \
-        || die "$TAG points at $(git rev-parse --short "$TAG^{commit}"), not HEAD — check out the tag"
-    git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen \
-        -c gpg.ssh.allowedSignersFile=.github/allowed_signers verify-tag "$TAG" \
-        || die "$TAG isn't signed by a key in .github/allowed_signers — refusing to publish"
+    tools/verify-release-tag.sh "$TAG"
     # Release assets on a private repo 404 for everyone else, including brew.
     if [[ "$(gh repo view --json visibility --jq .visibility 2>/dev/null)" != "PUBLIC" ]]; then
         say "warning: repo isn't public, so only collaborators can download this release"

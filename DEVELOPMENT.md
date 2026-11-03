@@ -98,7 +98,7 @@ Version lives in **one place**: `CFBundleShortVersionString` in `Resources/Info.
 
 ```sh
 # bump Info.plist → commit → tag
-git tag -s v0.3 -m "Flash 0.3" && git push origin v0.3   # signed; CI: .github/workflows/release.yml publishes
+git tag -s v0.4 -m "Flash 0.4" && git push origin v0.4   # signed; then dispatch .github/workflows/release.yml from the tag and approve the deployment
 # or locally
 make publish                              # needs gh + the env below
 ```
@@ -124,7 +124,7 @@ The secrets live on the **`release` environment**, not the repo. Only `main` and
 
 **Notarization** fails loudly. On a rejection, `release.sh` prints Apple's log with the exact reasons. On success it staples, runs `stapler validate`, and runs `spctl --assess`, which should say "Notarized Developer ID".
 
-**Homebrew.** After a tagged release publishes, CI runs `tools/update-cask.sh`. It renders `packaging/homebrew/flash.rb.template` with the version and the dmg's sha256, then downloads the dmg anonymously and checks it against that sha256, the way `brew install` will. The tap's `main` requires PRs and signed commits and is shared with the other apps, so the script follows their convention: branch `flash-<version>`, commit via GraphQL `createCommitOnBranch` (GitHub-signed; REST contents-API commits come out unsigned and the tap would refuse them), PR `flash <version>`, squash merge. Re-running it is safe. It needs `HOMEBREW_TAP_TOKEN`: a fine-grained PAT on the tap repo only, with Contents and Pull requests set to read & write. Preview locally with `make cask`.
+**Homebrew.** After a release publishes, run `make publish-cask` on your own `gh` login. `tools/update-cask.sh` reads the release's `SHA256SUMS`, downloads the dmg anonymously the way `brew` will, checks its attestation and notarization, then renders `packaging/homebrew/flash.rb.template` into a PR on `sriinnu/homebrew-tap` and squash merges it. CI holds no tap token on purpose.
 
 **Tags and releases are immutable.** A ruleset blocks moving or deleting `v*` tags, and the repo has immutable releases on, so assets can't be swapped after publishing. A bad release gets a new version, never a re-upload.
 
