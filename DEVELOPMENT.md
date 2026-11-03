@@ -118,7 +118,7 @@ Running the workflow manually (*Actions → Release → Run workflow*) is a dry 
 
 **Set them all at once:** `make release-secrets`. It finds the Developer ID identity in your keychain and reads the rest from the Apple dev vault in iCloud Drive (`apple-dev-account/`: the shared `developer-id.p12` and its password, plus `flash/AuthKey_*.p8`, `key_id.md`, `issuer.md`). Without the vault, it falls back to the newest `.p12`/`.p8` in Downloads, Desktop or Documents. It checks that the `.p12` password is right, offers to create the tap repo, and uploads everything with `gh secret set --env release`, so nothing is echoed or written to disk. The certificate and API key are per Apple team, so ones from other apps work unchanged.
 
-Without the signing and notary secrets, `release.sh --publish` refuses to run and the release job fails, so nothing ships unsigned. Ad-hoc is for local builds and manual dry runs only. The tap step is skipped without its token.
+Without the signing and notary secrets, `release.sh --publish` refuses to run and the release job fails, so nothing ships unsigned. Ad-hoc is for local builds and manual dry runs only.
 
 The secrets live on the **`release` environment**, not the repo. Only `main` and `v*` tags can deploy to it, so a workflow run from any other branch can't read the signing certificate. The workflow's actions are pinned to commit SHAs for the same reason, and Dependabot keeps the pins current.
 
