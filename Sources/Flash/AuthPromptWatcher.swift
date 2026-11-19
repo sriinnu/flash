@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import FlashCore
 
 /// Spots the system's "I need your say-so" dialogs: keychain access
 /// ("… wants to use your confidential information"), admin passwords, Touch
@@ -8,8 +9,10 @@ import CoreGraphics
 ///
 /// It polls the on-screen window list and matches on *owner process name*.
 /// Owner names don't need Screen Recording permission (window titles do), so
-/// this stays permission-free. The flip side: we know a dialog is up, not
-/// which app asked. Good enough to get your eyes there.
+/// this stays permission-free. The dialog itself doesn't say which app
+/// asked; `ProcessSnapshot.keychainRequester` finds the command-line client
+/// blocked on it (and who started that), so the log reads "asked by
+/// `security find-generic-password -s X` ← zsh ← claude".
 final class AuthPromptWatcher {
 
     static let shared = AuthPromptWatcher()
@@ -26,6 +29,9 @@ final class AuthPromptWatcher {
     private let pollInterval: DispatchTimeInterval = .milliseconds(750)
     private var timer: DispatchSourceTimer?
     private var present: Set<String> = []
+    /// When each dialog appeared, for "closed after 4s".
+    private var appeared: [String: Date] = [:]
+    private let probeQueue = DispatchQueue(label: "flash.auth.requester", qos: .userInitiated)
     private let debug = ProcessInfo.processInfo.environment["FLASH_DEBUG_WINDOWS"] == "1"
     private var lastOwners: Set<String> = []
 
@@ -56,9 +62,13 @@ final class AuthPromptWatcher {
         ) as? [[String: Any]] else { return }
 
         var owners = Set<String>()
+        var geometry: [String: String] = [:]
         for window in windows {
             if let owner = window[kCGWindowOwnerName as String] as? String {
                 owners.insert(owner)
+                if Self.owners[owner] != nil, geometry[owner] == nil {
+                    geometry[owner] = Self.describe(window)
+                }
             }
         }
 
@@ -73,28 +83,50 @@ final class AuthPromptWatcher {
 
         for owner in now.subtracting(present) {
             let label = Self.owners[owner] ?? owner
-            Log.write("[auth] \(owner) dialog up — \(label)")
-            Task { @MainActor in
-                FlashController.shared.trigger("auth:\(owner)")
-                ActivityLog.shared.record(ActivityEvent(
-                    kind: .prompt,
-                    repo: nil,
-                    ref: nil,
-                    summary: label,
-                    sha: nil,
-                    date: Date(),
-                    actor: .unknown
-                ))
+            let shape = geometry[owner] ?? "?"
+            appeared[owner] = Date()
+            Task { @MainActor in FlashController.shared.trigger("auth:\(owner)") }
+            // The asker is blocked until the dialog goes, so it's still in the
+            // process table; read it off the main queue (a sysctl per parent).
+            probeQueue.async {
+                let requester = ProcessSnapshot.keychainRequester()
+                let who = requester.map { "asked by \($0.label)" } ?? "asker not found (an app, not a command-line tool)"
+                Log.write("[auth] \(owner) dialog up — \(label) — \(who) — window \(shape)")
+                Task { @MainActor in
+                    ActivityLog.shared.record(ActivityEvent(
+                        kind: .prompt,
+                        repo: nil,
+                        ref: nil,
+                        summary: requester.map { r in
+                            label + " · " + (r.item.map { "item \($0) · " } ?? "") + r.command
+                        } ?? label,
+                        sha: nil,
+                        date: Date(),
+                        actor: requester.map { r in r.agent.map { .agent($0) } ?? .you(r.app) } ?? .unknown
+                    ))
+                }
             }
         }
 
         // Closed. Allowed or denied is invisible from here, so no green
         // ripple — success is only claimed when it's actually known.
         for owner in present.subtracting(now) {
-            Log.write("[auth] \(owner) dialog closed")
+            let open = appeared.removeValue(forKey: owner).map { Date().timeIntervalSince($0) }
+            Log.write("[auth] \(owner) dialog closed" + (open.map { String(format: " after %.1fs", $0) } ?? ""))
             Task { @MainActor in FlashController.shared.resolve("auth:\(owner)", success: false) }
         }
 
         present = now
+    }
+
+    /// "420×180 at 510,300, alpha 1, layer 2147483631": logged with every
+    /// "dialog up", so a dialog that seems to stay up for hours leaves
+    /// evidence of what window it really was.
+    static func describe(_ window: [String: Any]) -> String {
+        let bounds = (window[kCGWindowBounds as String] as? [String: CGFloat]) ?? [:]
+        let alpha = window[kCGWindowAlpha as String] as? CGFloat ?? -1
+        let layer = window[kCGWindowLayer as String] as? Int ?? -1
+        return String(format: "%.0f×%.0f at %.0f,%.0f, alpha %.2g, layer %d",
+                      bounds["Width"] ?? 0, bounds["Height"] ?? 0, bounds["X"] ?? 0, bounds["Y"] ?? 0, alpha, layer)
     }
 }

@@ -88,20 +88,43 @@ public struct OutputVerdict: Equatable {
         ["bytes": bytes, "kinds": kinds, "keychainValue": keychainValue]
     }
 
-    /// A `security find-generic-password … -w` (or `-g`) that isn't inside
-    /// `$( … )` or backticks, so its value lands in the output.
+    /// A `security find-generic-password … -w` (or `-g`) whose value lands in the
+    /// tool output: not inside `$( … )` or backticks, stdout not sent to a
+    /// file or `/dev/null`, not piped into `pbcopy`. (`>&2` and `2>` don't count
+    /// as capturing it: the agent's shell output includes stderr.)
     private static let keychainLookup = try! NSRegularExpression(
         pattern: #"\bsecurity\s+find-(?:generic|internet)-password\b(?:"[^"]*"|'[^']*'|[^|;&\n)"'])*?\s-[a-zA-Z]*[wg]\b"#)
 
+    /// The rest of that simple command, up to ;, &&, ||, a lone &, |, ) or a newline.
+    private static let restOfCommand = try! NSRegularExpression(
+        pattern: #"\G(?:"[^"]*"|'[^']*'|&>|>&|[^;&|\n)"'])*"#)
+
+    /// stdout to a file: >, >>, 1>, 1>>, &>, &>> (not >&2, not 2>).
+    private static let stdoutRedirect = try! NSRegularExpression(
+        pattern: #"(?:^|\s)(?:&>>?|1?>>?)(?!&)"#)
+
     static func printsKeychainValue(_ command: String) -> Bool {
-        let regex = keychainLookup
         let ns = command as NSString
-        for match in regex.matches(in: command, range: NSRange(location: 0, length: ns.length)) {
+        for match in keychainLookup.matches(in: command, range: NSRange(location: 0, length: ns.length)) {
             let before = ns.substring(to: match.range.location)
             let opened = before.components(separatedBy: "$(").count - 1
             let closed = before.components(separatedBy: ")").count - 1
             let ticks = before.filter { $0 == "\u{60}" }.count
-            if opened <= closed && ticks % 2 == 0 { return true }
+            guard opened <= closed && ticks % 2 == 0 else { continue }
+
+            let end = NSMaxRange(match.range)
+            let restRange = restOfCommand.firstMatch(in: command, range: NSRange(location: end, length: ns.length - end))?.range
+                ?? NSRange(location: end, length: 0)
+            let rest = ns.substring(with: restRange)
+            if stdoutRedirect.firstMatch(in: rest, range: NSRange(location: 0, length: (rest as NSString).length)) != nil {
+                continue
+            }
+            let after = ns.substring(from: NSMaxRange(restRange))
+            if after.hasPrefix("|"), !after.hasPrefix("||"),
+               after.dropFirst().trimmingCharacters(in: .whitespaces).hasPrefix("pbcopy") {
+                continue
+            }
+            return true
         }
         return false
     }

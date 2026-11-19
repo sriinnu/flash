@@ -8,6 +8,7 @@ struct ActivityView: View {
     static let windowSize = NSSize(width: 460, height: 520)
 
     @ObservedObject var activity: ActivityLog
+    let openLogs: () -> Void
 
     enum Span: String, CaseIterable, Identifiable {
         case today = "Today"
@@ -27,7 +28,7 @@ struct ActivityView: View {
                 .labelsHidden()
                 .frame(width: 160)
                 Spacer()
-                Button("Open Flash.log") { NSWorkspace.shared.open(Log.url) }
+                Button("Logs", action: openLogs)
                 Button("Clear") { activity.clear() }
                     .disabled(activity.events.isEmpty)
             }

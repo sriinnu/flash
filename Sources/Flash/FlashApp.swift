@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import FlashCore
 import ServiceManagement
 import Combine
 
@@ -32,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var settingsWindow: NSWindow?
     private var activityWindow: NSWindow?
+    private var logsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -80,6 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.popover.performClose(nil)
                 self?.openActivity()
             },
+            openLogs: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.openLogs()
+            },
             quit: { NSApp.terminate(nil) }
         ))
         // Popover follows the SwiftUI view's size as its content changes.
@@ -118,6 +124,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// `open flash://logs` (Terminal, Spotlight, Raycast) opens the Logs
+    /// window, launching Flash first if it isn't running.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme == "flash" {
+            switch url.host ?? url.path {
+            case "logs":
+                if let scope = LogScope(url: url) { LogViewer.shared.scope = scope }
+                openLogs()
+            case "activity": openActivity()
+            case "settings": openSettings()
+            default: Log.write("[app] unknown URL \(url.absoluteString)")
+            }
+        }
+    }
+
     private func buildQuickMenu() {
         quickToggleItem.action = #selector(toggleWatching)
         quickToggleItem.target = self
@@ -126,6 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let test = NSMenuItem(title: "Test Flash", action: #selector(testFlash), keyEquivalent: "")
         test.target = self
         quickMenu.addItem(test)
+
+        let logs = NSMenuItem(title: "Logs…", action: #selector(openLogs), keyEquivalent: "l")
+        logs.target = self
+        quickMenu.addItem(logs)
 
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -145,6 +170,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.menu = quickMenu
             sender.performClick(nil)
             statusItem.menu = nil
+            return
+        }
+
+        // Option-click: straight to the logs, no panel in between.
+        if NSApp.currentEvent?.modifierFlags.contains(.option) == true {
+            popover.performClose(nil)
+            openLogs()
             return
         }
 
@@ -230,13 +262,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 defer: false
             )
             window.title = "Flash Activity"
-            window.contentView = NSHostingView(rootView: ActivityView(activity: ActivityLog.shared))
+            window.contentView = NSHostingView(rootView: ActivityView(
+                activity: ActivityLog.shared,
+                openLogs: { [weak self] in self?.openLogs() }
+            ))
             window.isReleasedWhenClosed = false
             centerInVisibleFrame(window)
             activityWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)
         activityWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Resizable, unlike the others: log lines are long. The file is only
+    /// tailed while this window is open.
+    @objc private func openLogs() {
+        if logsWindow == nil {
+            let hostingView = NSHostingView(rootView: LogsView(viewer: LogViewer.shared))
+            // Only a minimum: the default options pin the window to the
+            // view's ideal size, which would make it unresizable.
+            hostingView.sizingOptions = [.minSize]
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: LogsView.windowSize),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Flash Logs"
+            window.contentView = hostingView
+            window.isReleasedWhenClosed = false
+            window.setFrameAutosaveName("FlashLogs")
+            if !window.setFrameUsingName("FlashLogs") { centerInVisibleFrame(window) }
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { LogViewer.shared.stop() }
+            }
+            logsWindow = window
+        }
+        LogViewer.shared.start()
+        NSApp.activate(ignoringOtherApps: true)
+        logsWindow?.makeKeyAndOrderFront(nil)
     }
 
     /// Centre inside the *visible* frame (menu bar and Dock excluded).

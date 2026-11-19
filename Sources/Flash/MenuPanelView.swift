@@ -17,6 +17,7 @@ import SwiftUI
 ///   │ RECENT               All (12) │  commits / pushes / prompts,
 ///   │ ↑ Pushed origin/main  Claude │  who did it when hooks know
 ///   ├──────────────────────────────┤
+///   │ ≣ Logs…                  ⌘L  │
 ///   │ ⚙ Settings…              ⌘,  │
 ///   │ ⏻ Quit Flash             ⌘Q  │
 ///   └──────────────────────────────┘
@@ -30,6 +31,7 @@ struct MenuPanelView: View {
     @ObservedObject var activity: ActivityLog
     let openSettings: () -> Void
     let openActivity: () -> Void
+    let openLogs: () -> Void
     let quit: () -> Void
 
     @AppStorage("alertStyle") private var alertStyle: AlertStyle = .comet
@@ -51,6 +53,8 @@ struct MenuPanelView: View {
                 .padding(14)
             Divider()
             VStack(spacing: 2) {
+                MenuRow(title: "Logs…", symbol: "doc.text.magnifyingglass", hint: "⌥-click ⌘L",
+                        shortcut: KeyboardShortcut("l", modifiers: .command), action: openLogs)
                 MenuRow(title: "Settings…", symbol: "gearshape", hint: "⌘,",
                         shortcut: KeyboardShortcut(",", modifiers: .command), action: openSettings)
                 MenuRow(title: "Quit Flash", symbol: "power", hint: "⌘Q",
