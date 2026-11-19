@@ -83,6 +83,7 @@ Add this to `~/.claude/settings.json` (merge into an existing `"hooks"` block):
 - **Watch-only.** The hook runs async and prints nothing, so it can't approve, deny or slow down anything. It forwards approval prompts, and tool calls only when they touch or print a secret; ordinary calls stop in the hook.
 - **Secrets stay out of Flash.** The hook judges a tool's output (did it print a token, or a keychain value from `security … -w`?) and drops it before anything is written. Commands and messages are redacted (`[REDACTED github-token]`) before they reach the inbox, `Flash.log` or the activity log, and those files are private to you.
 - **What you see:** the activity log says what the agent asked for (*Run `git push origin main`* in *flash*). A secret read that went through a prompt is logged as *you approved* and doesn't flash; one that didn't is *auto-approved* and does. One that **printed** the secret (*· printed keychain value*, *· printed github-token*) always flashes: the value is in the agent's transcript now.
+- **Who, what, why:** each entry names the rule and the item (*keychain ANTHROPIC_API_KEY*, *credentials-file*, *env-secret*), the session (`Claude 63e4ba9a`, or `Claude · Explore` for a subagent), and Flash.log keeps the exact fragment that matched. Matching looks only at what a call runs or opens: a Bash command, a file path, never an agent's prompt text or the content an Edit writes.
 - Off switch: **Settings → Detection → Agent alerts**.
 
 ## Use

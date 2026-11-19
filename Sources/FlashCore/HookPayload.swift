@@ -62,7 +62,9 @@ public struct OutputVerdict: Equatable {
 
     /// From a raw payload (in the hook, before sanitizing).
     public init(judging payload: [String: Any]) {
-        guard let response = payload["tool_response"] else { return }
+        guard let response = payload["tool_response"],
+              !Self.echoesInput.contains(payload["tool_name"] as? String ?? "")
+        else { return }
         let output = Self.strings(in: response).joined(separator: "\n")
         bytes = output.utf8.count
         kinds = Redact.kinds(in: output)
@@ -78,6 +80,10 @@ public struct OutputVerdict: Equatable {
         keychainValue = dict["keychainValue"] as? Bool ?? false
     }
 
+    /// Tools whose output is the agent's own input handed back (the file it
+    /// just wrote, the patch it made). Nothing new was revealed.
+    static let echoesInput: Set<String> = ["Edit", "MultiEdit", "Write", "NotebookEdit", "TodoWrite"]
+
     var dictionary: [String: Any] {
         ["bytes": bytes, "kinds": kinds, "keychainValue": keychainValue]
     }
@@ -85,7 +91,7 @@ public struct OutputVerdict: Equatable {
     /// A `security find-generic-password … -w` (or `-g`) that isn't inside
     /// `$( … )` or backticks, so its value lands in the output.
     private static let keychainLookup = try! NSRegularExpression(
-        pattern: #"\bsecurity\s+find-(?:generic|internet)-password\b[^|;&\n)]*?\s-[a-zA-Z]*[wg]\b"#)
+        pattern: #"\bsecurity\s+find-(?:generic|internet)-password\b(?:"[^"]*"|'[^']*'|[^|;&\n)"'])*?\s-[a-zA-Z]*[wg]\b"#)
 
     static func printsKeychainValue(_ command: String) -> Bool {
         let regex = keychainLookup
