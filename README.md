@@ -80,8 +80,9 @@ Add this to `~/.claude/settings.json` (merge into an existing `"hooks"` block):
 }
 ```
 
-- **Watch-only.** The hook runs async and prints nothing, so it can't approve, deny or slow down anything. It forwards approval prompts, and tool calls only when they touch a secret; ordinary calls stop in the script.
-- **What you see:** the activity log says what the agent asked for (*Run `git push origin main`* in *flash*). A secret read that went through a prompt is logged as *you approved* and doesn't flash; one that didn't is *auto-approved* and does.
+- **Watch-only.** The hook runs async and prints nothing, so it can't approve, deny or slow down anything. It forwards approval prompts, and tool calls only when they touch or print a secret; ordinary calls stop in the hook.
+- **Secrets stay out of Flash.** The hook judges a tool's output (did it print a token, or a keychain value from `security … -w`?) and drops it before anything is written. Commands and messages are redacted (`[REDACTED github-token]`) before they reach the inbox, `Flash.log` or the activity log, and those files are private to you.
+- **What you see:** the activity log says what the agent asked for (*Run `git push origin main`* in *flash*). A secret read that went through a prompt is logged as *you approved* and doesn't flash; one that didn't is *auto-approved* and does. One that **printed** the secret (*· printed keychain value*, *· printed github-token*) always flashes: the value is in the agent's transcript now.
 - Off switch: **Settings → Detection → Agent alerts**.
 
 ## Use
@@ -98,6 +99,7 @@ Add this to `~/.claude/settings.json` (merge into an existing `"hooks"` block):
 ```sh
 make run       # build + run in the foreground, logs to the terminal
 make install   # → /Applications/Flash.app
+make test      # redaction and hook-payload tests (FlashCore)
 make selftest  # with Flash running: triggers every detection path, pass/fail per step
 ```
 

@@ -1,4 +1,5 @@
 import Foundation
+import FlashCore
 
 /// Who did it. Only `flash-notify` can tell (it walks the process tree of
 /// whatever called it); folder watching alone sees *what* changed, never who.
@@ -69,6 +70,8 @@ final class ActivityLog: ObservableObject {
         .appendingPathComponent("activity.json")
 
     private init() {
+        // Files from before 0.3.4 were 0644.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.fileURL.path)
         guard let data = try? Data(contentsOf: Self.fileURL) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -86,6 +89,7 @@ final class ActivityLog: ObservableObject {
 
     func record(_ event: ActivityEvent) {
         var event = event
+        event.summary = Redact.text(event.summary)
         if let sha = event.sha, let pending = pendingActors.removeValue(forKey: sha) {
             event.actor = pending.actor
         }
@@ -111,7 +115,7 @@ final class ActivityLog: ObservableObject {
     /// first, the details of what it asked a moment later.
     func updateSummary(id: UUID, to summary: String) {
         guard let i = events.firstIndex(where: { $0.id == id }) else { return }
-        events[i].summary = summary
+        events[i].summary = Redact.text(summary)
         save()
     }
 
@@ -137,5 +141,6 @@ final class ActivityLog: ObservableObject {
         try? FileManager.default.createDirectory(
             at: Self.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: Self.fileURL, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.fileURL.path)
     }
 }

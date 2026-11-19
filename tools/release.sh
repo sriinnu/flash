@@ -114,11 +114,15 @@ BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
 BINARY="$BIN_DIR/Flash"
 [[ -x "$BINARY" ]] || die "binary not found at $BINARY"
 lipo -info "$BINARY"
+HOOK_BINARY="$BIN_DIR/FlashAgentHook"
+[[ -x "$HOOK_BINARY" ]] || die "hook binary not found at $HOOK_BINARY"
+lipo -info "$HOOK_BINARY"
 
 # ── 2. Bundle ───────────────────────────────────────────────────────────
 say "assembling $APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/Flash"
+cp "$HOOK_BINARY" "$APP/Contents/MacOS/flash-agent-hook"
 cp "$PLIST_SRC" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$APP/Contents/Info.plist"
 cp Resources/Flash.icns "$APP/Contents/Resources/Flash.icns"
@@ -134,11 +138,16 @@ if [[ -n "${KEYCHAIN:-}" ]]; then KEYCHAIN_ARGS=(--keychain "$KEYCHAIN"); fi
 
 if [[ -n "${DEVELOPER_ID:-}" ]]; then
     say "signing with Developer ID (hardened runtime)"
-    codesign --force --timestamp --options runtime \
-        ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} --sign "$DEVELOPER_ID" "$APP"
+    # Helper first: signing the bundle doesn't sign other executables in
+    # MacOS/, and notarization rejects an unsigned one.
+    for code in "$APP/Contents/MacOS/flash-agent-hook" "$APP"; do
+        codesign --force --timestamp --options runtime \
+            ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} --sign "$DEVELOPER_ID" "$code"
+    done
     SIGNED=1
 else
     say "no DEVELOPER_ID — ad-hoc signing (users will need to approve first launch)"
+    codesign --force --sign - "$APP/Contents/MacOS/flash-agent-hook"
     codesign --force --sign - "$APP"
     SIGNED=0
 fi

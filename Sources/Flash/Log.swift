@@ -1,7 +1,11 @@
 import Foundation
+import FlashCore
 
 /// Tiny logger: stdout when run from a terminal, plus ~/Library/Logs/Flash.log
 /// always — so sniffer debug output survives terminal-free launches.
+///
+/// Every message goes through `Redact` first, so a command an agent ran
+/// with a token inline is stored masked. The file is 0600.
 ///
 /// The file keeps the last `retention` and drops older lines: about 25 KB a
 /// day, so a week is ~175 KB. It used to grow forever (1.4 MB by October).
@@ -19,7 +23,7 @@ enum Log {
 
     static func write(_ message: String) {
         let stamp = formatter.string(from: Date())
-        let line = "[\(stamp)] \(message)\n"
+        let line = "[\(stamp)] \(Redact.text(message))\n"
         print(line, terminator: "")
         fflush(stdout)
         guard let data = line.data(using: .utf8) else { return }
@@ -38,7 +42,8 @@ enum Log {
             handle.write(data)
             try? handle.close()
         } else {
-            try? data.write(to: url)
+            FileManager.default.createFile(atPath: url.path, contents: data,
+                                           attributes: [.posixPermissions: 0o600])
         }
     }
 
@@ -46,6 +51,8 @@ enum Log {
     /// cut is a string compare. Untimestamped lines (crash stacks) go with
     /// the line above them.
     private static func pruneLocked() {
+        // Also once per launch: files from before 0.3.4 were 0644.
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
         let cutoff = "[" + formatter.string(from: Date().addingTimeInterval(-retention))
         var keep = false
