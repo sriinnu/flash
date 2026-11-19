@@ -50,14 +50,8 @@ Both diagrams in this guide are drawn with inkline: edit `docs/*.html`, then re-
 | `FlashCore/` | Shared by the app and the hook binary, no AppKit. `Redact` (secret shapes → `[REDACTED kind]`), `ToolCall` (per-tool targets, named secret rules, keychain item, summary cut around the match), `HookPayload` (what's forwarded; drops `tool_response` for an `OutputVerdict`). Tests: `make test` |
 | `FlashAgentHook/main.swift` | The hook binary, `Contents/MacOS/flash-agent-hook`: stdin JSON → filter → sanitize → 0600 `.hook` file in the inbox |
 | `ActivityView.swift` | The Flash Activity window: 7 days, grouped by day |
-<<<<<<< HEAD
-| `tools/flash-agent-hook` | Shim at the path settings.json uses (`Contents/Resources`); execs the hook binary, or `.build/*/FlashAgentHook` from a checkout |
-||||||| 897d6a5
-| `tools/flash-agent-hook` | Claude Code hook: filters, then drops the hook JSON into the inbox as a `.hook` file. Shipped in `Contents/Resources` |
-=======
 | `LogsView.swift` | The Flash Logs window: live Flash.log, engine filter, text filter, Follow, Copy |
-| `tools/flash-agent-hook` | Claude Code hook: filters, then drops the hook JSON into the inbox as a `.hook` file. Shipped in `Contents/Resources` |
->>>>>>> feat/in-app-logs
+| `tools/flash-agent-hook` | Shim at the path settings.json uses (`Contents/Resources`); execs the hook binary, or `.build/*/FlashAgentHook` from a checkout |
 | `tools/flash-askpass` | `core.askPass` / `SSH_ASKPASS`: flashes, then asks through a dialog |
 | `tools/git-hooks/` | Optional global hooks: forward to the repo's own hooks, then report who made the change |
 | `Resources/logo.svg` | Icon master. The screen tile, two comets colliding at the bottom, a bolt striking the collision point. `logo.png` and `Flash.icns` are rendered from it |
