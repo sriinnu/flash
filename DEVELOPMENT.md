@@ -43,10 +43,12 @@ Both diagrams in this guide are drawn with inkline: edit `docs/*.html`, then re-
 | `ActivityLog.swift` | `ActivityEvent`, `Actor`, the in-memory log shown in the panel |
 | `SSHPromptRouting.swift` | `launchctl setenv SSH_ASKPASS…` toggle |
 | `Log.swift` | stdout + `~/Library/Logs/Flash.log` |
+| `LogTail.swift` | `LogTail` (follows Flash.log like `tail -F`, reopening after a prune) and `LogViewer`, the model behind the Logs window |
 | `tools/git-ssh-keygen-flash` | `gpg.ssh.program` wrapper, shipped in `Contents/Resources` |
 | `tools/flash-notify` | The one client for the inbox; works out agent vs you from the process tree |
 | `AgentHooks.swift` | `AgentHookRouter` (Claude Code hook JSON → agent-waiting alert, secret-access notice, log) and `ToolCall` (summary, secret patterns) |
 | `ActivityView.swift` | The Flash Activity window: 7 days, grouped by day |
+| `LogsView.swift` | The Flash Logs window: live Flash.log, engine filter, text filter, Follow, Copy |
 | `tools/flash-agent-hook` | Claude Code hook: filters, then drops the hook JSON into the inbox as a `.hook` file. Shipped in `Contents/Resources` |
 | `tools/flash-askpass` | `core.askPass` / `SSH_ASKPASS`: flashes, then asks through a dialog |
 | `tools/git-hooks/` | Optional global hooks: forward to the repo's own hooks, then report who made the change |

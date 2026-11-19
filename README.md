@@ -91,7 +91,7 @@ Add this to `~/.claude/settings.json` (merge into an existing `"hooks"` block):
 | Left-click icon | Status, touches today, recent activity, style switcher, tests |
 | Right-click icon | Plain menu |
 | Settings (⌘,) | **Alerts** (style, 13 colours, reminders) · **Detection** (prompts, ssh, activity folders) · **About** |
-| Logs | `~/Library/Logs/Flash.log` |
+| Logs | `~/Library/Logs/Flash.log`, also live in the app: **⌥-click** the menu-bar shield, or `open flash://logs` |
 
 ## Build
 
