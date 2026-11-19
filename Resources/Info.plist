@@ -20,5 +20,16 @@
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.sriinnu.flash</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>flash</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
