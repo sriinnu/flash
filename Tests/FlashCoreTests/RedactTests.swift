@@ -72,6 +72,13 @@ private func fake(_ prefix: String, _ count: Int = 36) -> String {
         }
     }
 
+    /// Seen live: Flash's own log line lost a word to the JSON-style rule.
+    @Test func proseWithQuotesIsNotJSON() {
+        let line = #"matched "security find-generic-password": Script and {"name": "x"}"#
+        #expect(Redact.text(line) == line)
+        #expect(Redact.text(#"{"api_key": "abcdef123456"}"#) == #"{"api_key": "[REDACTED secret-assignment]"}"#)
+    }
+
     @Test func isIdempotent() {
         let once = Redact.text("GITHUB_TOKEN=\(fake("ghp_")) and Bearer \(fake("", 30))")
         #expect(Redact.text(once) == once)
@@ -120,6 +127,8 @@ private func fake(_ prefix: String, _ count: Int = 36) -> String {
         let payload = post("security find-internet-password -s github.com -g",
                            stdout: "keychain: ...", stderr: "password: \"" + fake("", 9) + "\"")
         #expect(OutputVerdict(judging: payload).keychainValue)
+        let quoted = post(#"security find-internet-password -l "GitHub (work)" -w"#, stdout: fake("", 12))
+        #expect(OutputVerdict(judging: quoted).keychainValue)
     }
 
     @Test func capturedLookupIsNotPrinted() {
@@ -146,6 +155,29 @@ private func fake(_ prefix: String, _ count: Int = 36) -> String {
             "tool_name": "Bash", "tool_input": ["command": "curl -H 'Authorization: token \(token)' https://api.github.com"],
         ]
         #expect(!(try written(payload)).contains(token))
+    }
+
+    /// Seen live: an Edit of Redact.swift came back "printed secret-assignment"
+    /// because the response echoes the file, regex source and all.
+    @Test func editEchoesAreNotPrints() {
+        let edit: [String: Any] = [
+            "hook_event_name": "PostToolUse", "session_id": "s", "tool_name": "Edit",
+            "tool_input": ["file_path": "/repo/Redact.swift"],
+            "tool_response": ["originalFile": "token " + fake("ghp_") + "\nlet password = \"hunter22\""],
+        ]
+        #expect(!OutputVerdict(judging: edit).found)
+        #expect(!HookPayload.shouldForward(edit, waiting: false))
+    }
+
+    @Test func sourceCodeIsNotAPrint() {
+        let read = post("cat Config.swift", stdout: #"let password: String = "placeholder" // --token value"#)
+        #expect(!OutputVerdict(judging: read).found)
+    }
+
+    @Test func envDumpIsAPrint() {
+        let dump = post("cat .env.local", stdout: "PORT=3000\nSTRIPE_API_KEY=" + fake("", 24) + "\n")
+        #expect(OutputVerdict(judging: dump).kinds == ["env-assignment"])
+        #expect(!(try! written(dump)).contains(fake("", 24)))
     }
 
     @Test func ordinaryCallsStayInTheHook() {

@@ -46,7 +46,7 @@ Both diagrams in this guide are drawn with inkline: edit `docs/*.html`, then re-
 | `tools/git-ssh-keygen-flash` | `gpg.ssh.program` wrapper, shipped in `Contents/Resources` |
 | `tools/flash-notify` | The one client for the inbox; works out agent vs you from the process tree |
 | `AgentHooks.swift` | `AgentHookRouter`: Claude Code hook JSON → agent-waiting alert, secret-access notice ("printed …" from the hook's verdict), log |
-| `FlashCore/` | Shared by the app and the hook binary, no AppKit. `Redact` (secret shapes → `[REDACTED kind]`), `ToolCall` (summary, secret patterns), `HookPayload` (what's forwarded; drops `tool_response` for an `OutputVerdict`). Tests: `make test` |
+| `FlashCore/` | Shared by the app and the hook binary, no AppKit. `Redact` (secret shapes → `[REDACTED kind]`), `ToolCall` (per-tool targets, named secret rules, keychain item, summary cut around the match), `HookPayload` (what's forwarded; drops `tool_response` for an `OutputVerdict`). Tests: `make test` |
 | `FlashAgentHook/main.swift` | The hook binary, `Contents/MacOS/flash-agent-hook`: stdin JSON → filter → sanitize → 0600 `.hook` file in the inbox |
 | `ActivityView.swift` | The Flash Activity window: 7 days, grouped by day |
 | `tools/flash-agent-hook` | Shim at the path settings.json uses (`Contents/Resources`); execs the hook binary, or `.build/*/FlashAgentHook` from a checkout |

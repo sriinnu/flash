@@ -16,6 +16,10 @@ public enum Redact {
     struct Rule {
         let kind: String
         let regex: NSRegularExpression
+        /// Specific enough to say "the output held a secret". The loose
+        /// ones (a `--password x` flag, `password: "…"` in source) only
+        /// mask; as evidence they'd fire on ordinary code.
+        let strong: Bool
     }
 
     /// Order matters only where shapes overlap: PEM first, so a key's body
@@ -35,13 +39,24 @@ public enum Redact {
         ("jwt", #"(?<secret>\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"#),
         ("auth-header", #"(?i)\b(?:authorization\s*[:=]\s*["']?)?(?:bearer|basic)\s+(?<secret>[A-Za-z0-9._~+/=-]{12,})"#),
         ("url-password", #"(?i)\b[a-z][a-z0-9+.-]*://[^\s:/@'"]+:(?<secret>[^\s@/'"]+)@"#),
+        // An env-style dump line (`cat .env`, `printenv`): upper-case name,
+        // `=` with no spaces, at the start of a line.
+        ("env-assignment", #"(?m)^[ \t]*(?:export[ \t]+)?[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)[A-Z0-9_]*=(?<secret>"[^"$\n]{6,}"|'[^'\n]{6,}'|[^\s'"$\[][^\s]{5,})"#),
         ("cli-secret", #"(?i)--(?:password|passphrase|token|api-key|secret|auth-token|client-secret)(?:=|\s+)(?<secret>[^\s'"$\[-][^\s'"]{5,})"#),
-        // NAME=value / "name": "value" where the name says secret. Values
-        // starting with $ or [ are references or masks, not secrets.
+        // NAME=value / NAME: value in shell and YAML, "name": "value" in
+        // JSON. Values starting with $ or [ are references or masks. A
+        // quoted name needs quotes on both sides and a quoted value, so
+        // `find-generic-password": Script` in prose isn't an assignment.
         ("secret-assignment",
          #"(?i)\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIALS?)[A-Z0-9_]*"#
-            + #"["']?\s*[=:]\s*(?<secret>"[^"$\[\n]{6,}"|'[^'\[\n]{6,}'|[^\s'"$\[&|;)(,}]{6,})"#),
-    ].map { Rule(kind: $0.0, regex: try! NSRegularExpression(pattern: $0.1)) }
+            + #"\s*[=:]\s*(?<secret>"[^"$\[\n]{6,}"|'[^'\[\n]{6,}'|[^\s'"$\[&|;)(,}]{6,})"#),
+        ("secret-assignment",
+         #"(?i)["'][A-Z0-9_-]*(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIALS?)[A-Z0-9_-]*["']"#
+            + #"\s*:\s*["'](?<secret>[^"'$\[\n]{6,})["']"#),
+    ].map { Rule(kind: $0.0, regex: try! NSRegularExpression(pattern: $0.1),
+                 strong: !weakKinds.contains($0.0)) }
+
+    static let weakKinds: Set<String> = ["cli-secret", "secret-assignment"]
 
     /// `text` with every secret-shaped part masked.
     public static func text(_ text: String) -> String {
@@ -49,9 +64,9 @@ public enum Redact {
     }
 
     /// Which kinds of secret `text` holds, without keeping them. Sorted,
-    /// each once: "github-token", "jwt", ….
+    /// each once: "github-token", "jwt", …. Strong shapes only.
     public static func kinds(in text: String) -> [String] {
-        Array(Set(scan(text).kinds)).sorted()
+        Array(Set(scan(text).kinds).subtracting(weakKinds)).sorted()
     }
 
     static func scan(_ input: String) -> (text: String, kinds: [String]) {

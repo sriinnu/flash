@@ -72,17 +72,23 @@ enum AgentHookRouter {
             finishWait(session, success: true)
             let call = ToolCall(payload)
             let printed = OutputVerdict(payload[HookPayload.verdictKey])?.label
-            guard call.touchesSecret || printed != nil else { return }
+            let match = call.secretMatch
+            guard match != nil || printed != nil else { return }
             let cutoff = Date().addingTimeInterval(-600)
             let yours = (askedYou[session]?[call.fingerprint] ?? .distantPast) > cutoff
             askedYou[session] = askedYou[session]?.filter { $0.value > cutoff }
-            let how = yours ? "you approved" : "auto-approved"
-            let shown = printed.map { " · printed \($0)" } ?? ""
-            Log.write("[agent] secret access in \(repo ?? "?") (\(how)\(printed.map { ", printed \($0)" } ?? "")): \(call.summary)")
+
+            // What, why, how it got through, and what came out:
+            // "keychain ANTHROPIC_API_KEY · auto-approved · printed keychain value"
+            let why = match.map { m in call.keychainItem.map { "\(m.rule) \($0)" } ?? m.rule } ?? "output"
+            let details = [why, yours ? "you approved" : "auto-approved"] + (printed.map { ["printed \($0)"] } ?? [])
+            let who = agentName(payload)
+            Log.write("[agent] secret access · \(details.joined(separator: " · ")) · \(who) \(session.prefix(8)) in \(repo ?? "?")"
+                      + " — \(call.summary)" + (match.map { " — matched «\($0.fragment)»" } ?? ""))
             ActivityLog.shared.record(ActivityEvent(
                 kind: .secretAccess, repo: repo, ref: nil,
-                summary: call.summary + " · " + how + shown,
-                sha: nil, date: Date(), actor: .agent("Claude")))
+                summary: call.summary + " · " + details.joined(separator: " · "),
+                sha: nil, date: Date(), actor: .agent(who)))
             // You already saw a prompted read; a printed secret is in the
             // agent's transcript now, so that one flashes either way.
             if !yours || printed != nil { FlashController.shared.notice(.secretAccess) }
@@ -93,6 +99,12 @@ enum AgentHookRouter {
         default:
             break
         }
+    }
+
+    /// "Claude", or "Claude · Explore" for a subagent's call.
+    private static func agentName(_ payload: [String: Any]) -> String {
+        guard let type = payload["agent_type"] as? String, !type.isEmpty else { return "Claude" }
+        return "Claude · \(type)"
     }
 
     private static func waitID(_ session: String) -> String { "agent:\(session)" }
