@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import FlashCore
 
 /// Flash.log, live, inside the app: what each engine said, newest at the
 /// bottom like a terminal. Filter by engine tag or text; Follow keeps the
@@ -11,7 +12,6 @@ struct LogsView: View {
 
     @ObservedObject var viewer: LogViewer
 
-    @State private var tag: String?        // nil: every engine
     @State private var query = ""
     @State private var follow = true
 
@@ -35,11 +35,13 @@ struct LogsView: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Picker("Engine", selection: $tag) {
-                Text("All engines").tag(String?.none)
+            Picker("Engine", selection: $viewer.scope) {
+                Text("All engines").tag(LogScope.all)
+                Text("Audit: secrets, keychain, ssh").tag(LogScope.audit)
                 Divider()
-                ForEach(tags, id: \.self) { Text($0).tag(String?.some($0)) }
+                ForEach(tags, id: \.self) { Text($0).tag(LogScope.tag($0)) }
             }
+            .help("Audit: agent secret access, keychain dialogs and who asked, hook inbox, ssh")
             .labelsHidden()
             .fixedSize()
 
@@ -103,6 +105,7 @@ struct LogsView: View {
                 .onAppear { scrollToEnd(proxy) }
                 .onChange(of: shown.last?.id) { _, _ in if follow { scrollToEnd(proxy) } }
                 .onChange(of: follow) { _, on in if on { scrollToEnd(proxy) } }
+                .modifier(PauseFollowOnScroll(follow: $follow))
             }
         }
     }
@@ -133,15 +136,20 @@ struct LogsView: View {
 
     // MARK: Filtering
 
+    /// The engines in the file, plus one a URL asked for that hasn't
+    /// logged yet (so the picker can show it).
     private var tags: [String] {
-        Array(Set(viewer.lines.compactMap(\.tag))).sorted()
+        var all = Set(viewer.lines.compactMap(\.tag))
+        if case .tag(let wanted) = viewer.scope { all.insert(wanted) }
+        return all.sorted()
     }
 
     private var shown: [LogLine] {
         let needle = query.trimmingCharacters(in: .whitespaces)
-        guard tag != nil || !needle.isEmpty else { return viewer.lines }
+        let scope = viewer.scope
+        guard scope != .all || !needle.isEmpty else { return viewer.lines }
         return viewer.lines.filter { line in
-            (tag == nil || line.tag == tag)
+            scope.includes(line.tag)
                 && (needle.isEmpty || line.message.localizedCaseInsensitiveContains(needle)
                     || (line.tag?.localizedCaseInsensitiveContains(needle) ?? false))
         }
@@ -180,8 +188,14 @@ private struct LogRow: View {
             : LogRow.older.string(from: date)
     }
 
+    /// Engines whose lines quote someone else's text (a command an agent
+    /// ran, a hook's summary, a dialog's asker): "error" in there is the
+    /// quote, not Flash failing.
+    private static let quoting: Set<String> = ["agent", "inbox", "auth", "activity"]
+
     private var isProblem: Bool {
         if line.tag == "crash" { return true }
+        if let tag = line.tag, LogRow.quoting.contains(tag) { return false }
         let lower = line.message.lowercased()
         return lower.contains("error") || lower.contains("failed") || lower.contains("couldn't")
     }
@@ -210,5 +224,44 @@ private struct LogRow: View {
         case "activity", "inbox": return .green
         default: return .secondary
         }
+    }
+}
+
+/// Turns Follow off while you scroll back through the log, and on again
+/// when you scroll to the end, so new lines don't yank the view away.
+/// Needs macOS 15's scroll phases; on 14 Follow stays a manual checkbox.
+private struct PauseFollowOnScroll: ViewModifier {
+    @Binding var follow: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.modifier(ScrollPhaseFollow(follow: $follow))
+        } else {
+            content
+        }
+    }
+}
+
+@available(macOS 15, *)
+private struct ScrollPhaseFollow: ViewModifier {
+    @Binding var follow: Bool
+    @State private var atEnd = true
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.visibleRect.maxY >= geometry.contentSize.height - 24
+            } action: { _, now in
+                atEnd = now
+            }
+            .onScrollPhaseChange { old, new in
+                // Only your scrolling counts; Follow's own scrollTo doesn't
+                // pass through these phases.
+                if new == .tracking || new == .interacting {
+                    if !atEnd { follow = false }
+                } else if new == .idle, old == .interacting || old == .decelerating || old == .tracking {
+                    follow = atEnd
+                }
+            }
     }
 }

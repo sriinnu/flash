@@ -1,4 +1,5 @@
 import Foundation
+import FlashCore
 
 /// One entry of Flash.log: `[stamp] [tag] message`. Untimestamped lines
 /// (crash stacks) are folded into the entry above them, as `Log` prunes them.
@@ -202,6 +203,8 @@ final class LogViewer: ObservableObject {
     @Published private(set) var lines: [LogLine] = []
     /// No Flash.log on disk yet.
     @Published private(set) var missing = false
+    /// The window's scope picker; a `flash://logs?…` URL sets it too.
+    @Published var scope: LogScope = .all
 
     /// A week is ~5k lines; the cap only guards a runaway engine.
     private let capacity = 50_000
