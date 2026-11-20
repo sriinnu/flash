@@ -7,9 +7,11 @@ import Testing
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     func proc(_ pid: Int32, _ ppid: Int32, _ name: String, ago: TimeInterval = 600,
-              path: String = "", args: [String] = [], env: [String: String] = [:]) -> ProcessRecord {
-        ProcessRecord(pid: pid, ppid: ppid, name: name, started: now.addingTimeInterval(-ago),
-                      path: path, args: args, environment: env)
+              path: String = "", cwd: String = "", args: [String] = [], env: [String: String] = [:]) -> ProcessRecord {
+        var record = ProcessRecord(pid: pid, ppid: ppid, name: name, started: now.addingTimeInterval(-ago),
+                                   path: path, args: args, environment: env)
+        record.cwd = cwd
+        return record
     }
 
     /// A real shape: Ghostty → zsh → claude (native, version-named) → zsh → security.
@@ -83,6 +85,61 @@ import Testing
         ]
         #expect(KeychainAttribution.describe(1001, in: table)?.agent == "Claude")
         #expect(KeychainAttribution.describe(2001, in: table)?.agent == "codex")
+    }
+
+    /// git push over https: claude → zsh → git push → git-remote-https → git-credential-osxkeychain get
+    var credentialTable: [Int32: ProcessRecord] {
+        var table = agentTable
+        table[400] = proc(400, 300, "zsh", ago: 3, path: "/bin/zsh", env: ["CLAUDE_CODE_USE_BEDROCK": "1"])
+        table[510] = proc(510, 400, "git", ago: 2, path: "/usr/bin/git", cwd: "/Users/me/flash/Sources",
+                          args: ["git", "push", "origin", "main"])
+        table[520] = proc(520, 510, "git-remote-https", ago: 2,
+                          args: ["git-remote-https", "origin", "https://github.com/me/flash.git"])
+        table[530] = proc(530, 520, "git-credential-osxkeychain", ago: 1, args: ["git-credential-osxkeychain", "get"])
+        table[500] = nil
+        return table
+    }
+
+    let flashRepo: (String) -> GitRepo? = { dir in
+        dir.hasPrefix("/Users/me/flash")
+            ? GitRepo(name: "flash", branch: "main", remotes: ["origin": "https://github.com/me/flash.git", "lab": "git@gitlab.com:me/flash.git"])
+            : nil
+    }
+
+    @Test func credentialHelperNamesHostCommandProjectAndProvider() throws {
+        #expect(KeychainAttribution.candidates(in: credentialTable, at: now).first == 530)
+        let r = try #require(KeychainAttribution.describe(530, in: credentialTable, repo: flashRepo))
+        #expect(r.agent == "Claude")
+        #expect(r.credentialHost == "github.com")
+        #expect(r.gitCommand == "git push origin main")
+        #expect(r.project == "flash" && r.branch == "main")
+        #expect(r.provider == "Bedrock")
+        #expect(r.context == "for github.com during git push origin main · in flash (main) · Bedrock")
+    }
+
+    @Test func credentialHostFallsBackToTheNamedRemote() throws {
+        var table = credentialTable
+        table[520] = nil
+        table[530] = proc(530, 510, "git-credential-osxkeychain", ago: 1, args: ["git-credential-osxkeychain", "get"])
+        table[510] = proc(510, 400, "git", ago: 2, cwd: "/Users/me/flash", args: ["git", "fetch", "lab"])
+        let r = try #require(KeychainAttribution.describe(530, in: table, repo: flashRepo))
+        #expect(r.credentialHost == "gitlab.com")
+        #expect(r.gitCommand == "git fetch lab")
+    }
+
+    @Test func gitCommandSkipsGlobalOptions() {
+        #expect(KeychainAttribution.gitSubcommand(["git", "-c", "credential.helper=", "-C", "/x", "ls-remote", "https://github.com/a/b"])
+                == ["ls-remote", "https://github.com/a/b"])
+        #expect(KeychainAttribution.gitSubcommand(["git", "remote-https", "origin", "https://github.com/a/b"]) == nil)
+        #expect(KeychainAttribution.gitSubcommand(["git", "credential-osxkeychain", "get"]) == nil)
+        #expect(KeychainAttribution.gitSubcommand(["git", "--no-pager"]) == nil)
+    }
+
+    @Test func noRepoNoProject() throws {
+        let r = try #require(KeychainAttribution.describe(500, in: agentTable, repo: { _ in nil }))
+        #expect(r.project == nil && r.credentialHost == nil)
+        #expect(r.provider == "Anthropic API")
+        #expect(r.context == "Anthropic API")
     }
 
     @Test func claudeCodeEnvMarksAnAgentEvenWithoutAncestry() throws {

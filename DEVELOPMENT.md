@@ -39,7 +39,7 @@ Both diagrams in this guide are drawn with inkline: edit `docs/*.html`, then re-
 | `SignTrigger.swift` | `SIGUSR1` = touch needed, `SIGUSR2` = done (exit code in `$TMPDIR/flash-signing-result`) |
 | `EventInbox.swift` | Inbox folder watcher + `InboxRouter` (`prompt.begin/end`, `attrib`) |
 | `AuthPromptWatcher.swift` | Polls on-screen window owners (`SecurityAgent`, `coreautha`, `pinentry-mac`); on "dialog up" logs the asker, the window geometry, and the time it stayed up |
-| `ProcessSnapshot.swift` | The process table via libproc and `KERN_PROCARGS2` (path, args, a few env keys) for keychain attribution |
+| `ProcessSnapshot.swift` | The process table via libproc and `KERN_PROCARGS2` (path, working directory, args, a few env keys) for keychain attribution |
 | `RepoActivityWatcher.swift` | FSEvents on watched roots; parses reflogs (`commit…`, `update by push`) |
 | `ActivityLog.swift` | `ActivityEvent`, `Actor`, the in-memory log shown in the panel |
 | `SSHPromptRouting.swift` | `launchctl setenv SSH_ASKPASS…` toggle |
@@ -48,8 +48,8 @@ Both diagrams in this guide are drawn with inkline: edit `docs/*.html`, then re-
 | `tools/git-ssh-keygen-flash` | `gpg.ssh.program` wrapper, shipped in `Contents/Resources` |
 | `tools/flash-notify` | The one client for the inbox; works out agent vs you from the process tree |
 | `AgentHooks.swift` | `AgentHookRouter`: Claude Code hook JSON → agent-waiting alert, secret-access notice ("printed …" from the hook's verdict), log |
-| `FlashCore/` | Shared by the app and the hook binary, no AppKit. `Redact` (secret shapes → `[REDACTED kind]`), `ToolCall` (per-tool targets, named secret rules, keychain item, summary cut around the match), `KeychainAttribution` (which client process is blocked on a dialog, and who started it), `LogScope` (all / audit / one tag), `HookPayload` (what's forwarded; drops `tool_response` for an `OutputVerdict`). Tests: `make test` |
-| `FlashAgentHook/main.swift` | The hook binary, `Contents/MacOS/flash-agent-hook`: stdin JSON → filter → sanitize → 0600 `.hook` file in the inbox |
+| `FlashCore/` | Shared by the app and the hook binary, no AppKit. `Redact` (secret shapes → `[REDACTED kind]`), `ToolCall` (per-tool targets, named secret rules, keychain item, summary cut around the match), `DataMask` (blanks text that's only written, so rules see what runs), `AgentIdentity` (model from the transcript, provider from Claude Code's env), `GitRepo` (name, branch, remotes from `.git`, worktree-aware), `KeychainAttribution` (which client process is blocked on a dialog, and who started it), `LogScope` (all / audit / one tag), `HookPayload` (what's forwarded; drops `tool_response` for an `OutputVerdict`). Tests: `make test` |
+| `FlashAgentHook/main.swift` | The hook binary, `Contents/MacOS/flash-agent-hook`: stdin JSON → filter → sanitize → 0600 `.hook` file in the inbox; adds `flash_agent` (model, provider) |
 | `ActivityView.swift` | The Flash Activity window: 7 days, grouped by day |
 | `LogsView.swift` | The Flash Logs window: live Flash.log, scope picker (all, Audit, one engine), text filter, Follow (paused by scrolling back on macOS 15+), Copy |
 | `tools/flash-agent-hook` | Shim at the path settings.json uses (`Contents/Resources`); execs the hook binary, or `.build/*/FlashAgentHook` from a checkout |

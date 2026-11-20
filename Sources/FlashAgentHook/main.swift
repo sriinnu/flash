@@ -41,7 +41,16 @@ func isWaiting(_ session: String?) -> Bool {
 
 guard HookPayload.shouldForward(payload, waiting: isWaiting(payload["session_id"] as? String)) else { exit(0) }
 
-guard let output = try? JSONSerialization.data(withJSONObject: HookPayload.sanitize(payload)) else { exit(0) }
+// Model and provider: the transcript's newest assistant line (the
+// subagent's own transcript for a subagent's call) and Claude Code's
+// provider switches, which this process inherits.
+var forwarded = HookPayload.sanitize(payload)
+let identity = AgentIdentity(
+    model: AgentIdentity.transcriptPath(for: payload).flatMap(AgentIdentity.lastModel(transcriptAt:)),
+    provider: AgentIdentity.claudeProvider(environment))
+forwarded[AgentIdentity.payloadKey] = identity.dictionary
+
+guard let output = try? JSONSerialization.data(withJSONObject: forwarded) else { exit(0) }
 
 // Hidden temp name (the drain skips dotfiles), private from the first byte,
 // then one rename so Flash never reads half a file.
