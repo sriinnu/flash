@@ -26,8 +26,14 @@ final class EventInbox {
 
     /// Created at launch whether or not watching is on, so flash-notify's
     /// "does Flash exist here?" check (the folder) is true from first run.
+    /// Flash's folder and the inbox are 0700: hook files are redacted, but
+    /// nothing in here is anyone else's business.
     static func ensureDirectory() {
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fm = FileManager.default
+        try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        for dir in [directory.deletingLastPathComponent(), directory] {
+            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        }
     }
 
     func start() {
@@ -55,6 +61,7 @@ final class EventInbox {
 
     private func drain() {
         let fm = FileManager.default
+        sweepTemporaries()
         guard let urls = try? fm.contentsOfDirectory(
             at: Self.directory,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -77,6 +84,22 @@ final class EventInbox {
             }
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             onEvent?(Self.parse(text))
+        }
+    }
+
+    /// A writer killed between its temp file and the rename leaves a
+    /// `.tmp.*` behind that no drain would ever read. A minute is far longer
+    /// than any writer takes.
+    private func sweepTemporaries() {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: Self.directory.path) else { return }
+        for name in names where name.hasPrefix(".tmp.") {
+            let path = Self.directory.appendingPathComponent(name).path
+            let modified = (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date ?? .distantPast
+            if Date().timeIntervalSince(modified) > 60 {
+                try? fm.removeItem(atPath: path)
+                Log.write("[inbox] removed abandoned \(name)")
+            }
         }
     }
 

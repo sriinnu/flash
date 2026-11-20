@@ -14,13 +14,20 @@ bundle: build
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp $(BINARY) $(APP)/Contents/MacOS/Flash
+	cp .build/release/FlashAgentHook $(APP)/Contents/MacOS/flash-agent-hook
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$(date +%Y%m%d%H%M%S)" $(APP)/Contents/Info.plist
 	cp Resources/Flash.icns $(APP)/Contents/Resources/Flash.icns
 	cp tools/git-ssh-keygen-flash tools/flash-notify tools/flash-askpass tools/flash-agent-hook $(APP)/Contents/Resources/
 	cp -R tools/git-hooks $(APP)/Contents/Resources/git-hooks
+	# Helper first: signing the bundle doesn't sign other executables in MacOS/.
+	codesign --force --sign - $(APP)/Contents/MacOS/flash-agent-hook
 	codesign --force --sign - $(APP)
 	@echo "build $$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' $(APP)/Contents/Info.plist)"
+
+# FlashCore: redaction, secret patterns, hook payload filtering.
+test:
+	swift test
 
 # Run from terminal so sniffer logs land in stdout — best for testing.
 run: bundle
@@ -64,4 +71,4 @@ selftest:
 clean:
 	rm -rf .build $(APP) dist
 
-.PHONY: build bundle run open-app icon release publish release-secrets cask publish-cask selftest clean
+.PHONY: build test bundle run open-app icon release publish release-secrets cask publish-cask selftest clean

@@ -1,4 +1,5 @@
 import Foundation
+import FlashCore
 
 /// Claude Code hook events, delivered by `tools/flash-agent-hook` as raw JSON
 /// files in the inbox. Watch-only by construction: the hook runs async and
@@ -7,7 +8,12 @@ import Foundation
 ///   Notification (permission_prompt, …) → agent waiting: alert + log entry
 ///   PermissionRequest                   → what it asked for (fills the entry)
 ///   PostToolUse                         → it ran: resolve the wait; a secret
-///                                         read nobody asked you about → notice
+///                                         read nobody asked you about, or any
+///                                         call that printed one → notice
+///
+/// The hook binary has already dropped the tool's output and redacted the
+/// rest (FlashCore.HookPayload); `flash_output` is its verdict on what the
+/// output held.
 ///   PostToolUseFailure, Stop, …         → resolve without success
 ///
 /// Claude Code doesn't say whether a call was auto-approved. A call that had
@@ -65,17 +71,33 @@ enum AgentHookRouter {
         case "PostToolUse":
             finishWait(session, success: true)
             let call = ToolCall(payload)
-            guard call.touchesSecret else { return }
+            let printed = OutputVerdict(payload[HookPayload.verdictKey])?.label
+            let match = call.secretMatch
+            guard match != nil || printed != nil else { return }
             let cutoff = Date().addingTimeInterval(-600)
             let yours = (askedYou[session]?[call.fingerprint] ?? .distantPast) > cutoff
             askedYou[session] = askedYou[session]?.filter { $0.value > cutoff }
-            Log.write("[agent] secret access in \(repo ?? "?") (\(yours ? "you approved" : "auto-approved")): \(call.summary)")
+
+            // What, why, how it got through, and what came out:
+            // "keychain ANTHROPIC_API_KEY · auto-approved · printed keychain value"
+            let why = match.map { m in call.keychainItem.map { "\(m.rule) \($0)" } ?? m.rule } ?? "output"
+            let details = [why, yours ? "you approved" : "auto-approved"] + (printed.map { ["printed \($0)"] } ?? [])
+            let who = agentName(payload)
+            // "Claude · Opus 5.5 · Anthropic API": the model is best effort
+            // (read from the transcript), so "model unknown" when it's missing.
+            let identity = AgentIdentity(payload[AgentIdentity.payloadKey])
+            let through = identity?.label.map { (identity?.model == nil ? "model unknown · " : "") + $0 }
+            Log.write("[agent] secret access · \(details.joined(separator: " · ")) · \(who)"
+                      + (through.map { " · \($0)" } ?? "") + " \(session.prefix(8)) in \(repo ?? "?")"
+                      + " — \(call.summary)" + (match.map { " — matched «\($0.fragment)»" } ?? ""))
             ActivityLog.shared.record(ActivityEvent(
                 kind: .secretAccess, repo: repo, ref: nil,
-                summary: call.summary + (yours ? " · you approved" : " · auto-approved"),
-                sha: nil, date: Date(), actor: .agent("Claude")))
-            // You already saw this one in a prompt; only the silent ones flash.
-            if !yours { FlashController.shared.notice(.secretAccess) }
+                summary: ([call.summary] + details + (identity?.model.map { [AgentIdentity.displayName($0)] } ?? []))
+                    .joined(separator: " · "),
+                sha: nil, date: Date(), actor: .agent(who)))
+            // You already saw a prompted read; a printed secret is in the
+            // agent's transcript now, so that one flashes either way.
+            if !yours || printed != nil { FlashController.shared.notice(.secretAccess) }
 
         case "PostToolUseFailure", "PermissionDenied", "Stop", "UserPromptSubmit":
             finishWait(session, success: false)
@@ -83,6 +105,12 @@ enum AgentHookRouter {
         default:
             break
         }
+    }
+
+    /// "Claude", or "Claude · Explore" for a subagent's call.
+    private static func agentName(_ payload: [String: Any]) -> String {
+        guard let type = payload["agent_type"] as? String, !type.isEmpty else { return "Claude" }
+        return "Claude · \(type)"
     }
 
     private static func waitID(_ session: String) -> String { "agent:\(session)" }
@@ -104,65 +132,4 @@ enum AgentHookRouter {
             try? FileManager.default.removeItem(at: marker)
         }
     }
-}
-
-/// One tool call from a hook payload, described for a person.
-struct ToolCall {
-    let name: String
-    let input: [String: Any]
-
-    init(_ payload: [String: Any]) {
-        name = payload["tool_name"] as? String ?? "tool"
-        input = payload["tool_input"] as? [String: Any] ?? [:]
-    }
-
-    /// "Run `security find-generic-password -s github.com`", "Read ~/.ssh/config"
-    var summary: String {
-        func short(_ s: String, _ n: Int = 90) -> String {
-            let one = s.replacingOccurrences(of: "\n", with: " ")
-            return one.count > n ? String(one.prefix(n)) + "…" : one
-        }
-        func path(_ key: String) -> String {
-            let p = input[key] as? String ?? ""
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            return p.hasPrefix(home) ? "~" + p.dropFirst(home.count) : p
-        }
-        switch name {
-        case "Bash": return "Run `\(short(input["command"] as? String ?? ""))`"
-        case "Read": return "Read \(path("file_path"))"
-        case "Edit", "MultiEdit", "Write": return "Edit \(path("file_path"))"
-        case "NotebookEdit": return "Edit \(path("notebook_path"))"
-        case "WebFetch": return "Fetch \(short(input["url"] as? String ?? ""))"
-        case "Grep", "Glob": return "Search \(short(input["pattern"] as? String ?? "")) \(path("path"))"
-        default: return name.hasPrefix("mcp__") ? "Use \(name.dropFirst(5))" : name
-        }
-    }
-
-    /// Same call, same string: pairs a PermissionRequest with its PostToolUse.
-    var fingerprint: String {
-        let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
-        return name + ":" + (data.flatMap { String(data: $0, encoding: .utf8) } ?? "")
-    }
-
-    /// Keychain, password managers, SSH and signing keys, env files, the
-    /// Apple dev vault. Keep in step with `secrets` in tools/flash-agent-hook,
-    /// which filters before anything reaches the inbox.
-    var touchesSecret: Bool {
-        let text = ([name] + input.values.compactMap { $0 as? String }).joined(separator: " ")
-        return Self.secretPattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
-    }
-
-    private static let secretPattern = try! NSRegularExpression(
-        pattern: [
-            #"\bsecurity\s+(find-(generic|internet)-password|dump-keychain|export|unlock-keychain)"#,
-            #"\bop\s+(read|inject|run|signin|item\s+get)\b"#,
-            #"\bbw\s+(get|unlock|export)\b"#,
-            #"\bgh\s+auth\s+token\b"#,
-            #"/\.ssh/|~/\.ssh\b"#,
-            #"\bid_(rsa|ecdsa|ed25519)(_sk)?\b"#,
-            #"apple-dev-account|Library/Keychains|1password"#,
-            #"(^|[\s/'"])\.env(\.[\w-]+)?($|[\s'"])"#,
-            #"\.(p12|p8|pem)\b"#,
-        ].joined(separator: "|"),
-        options: [.caseInsensitive])
 }

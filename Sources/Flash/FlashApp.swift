@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import FlashCore
 import ServiceManagement
 import Combine
 
@@ -128,7 +129,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.scheme == "flash" {
             switch url.host ?? url.path {
-            case "logs": openLogs()
+            case "logs":
+                if let scope = LogScope(url: url) { LogViewer.shared.scope = scope }
+                openLogs()
             case "activity": openActivity()
             case "settings": openSettings()
             default: Log.write("[app] unknown URL \(url.absoluteString)")

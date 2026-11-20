@@ -24,7 +24,7 @@ Security keys blink a tiny LED when they want a touch. If you're looking at anot
 |---|---|
 | FIDO / passkey touch (browser, WebAuthn) | Watches USB security-key traffic |
 | SSH commit signing with an `sk-` key | `git-ssh-keygen-flash` wrapper |
-| Keychain, password, Touch ID, GPG PIN dialogs | Watches for those system dialogs on screen |
+| Keychain, password, Touch ID, GPG PIN dialogs | Watches for those system dialogs on screen, and logs who asked: the command-line tool blocked on it (`security`, a git credential helper, `codesign`, `ssh-add`, …) and the agent or terminal that started it |
 | git/ssh passphrase, PIN, credential, key touch | `flash-askpass` |
 | Claude Code waiting for your approval | `flash-agent-hook` (Claude Code hooks) |
 
@@ -80,8 +80,13 @@ Add this to `~/.claude/settings.json` (merge into an existing `"hooks"` block):
 }
 ```
 
-- **Watch-only.** The hook runs async and prints nothing, so it can't approve, deny or slow down anything. It forwards approval prompts, and tool calls only when they touch a secret; ordinary calls stop in the script.
-- **What you see:** the activity log says what the agent asked for (*Run `git push origin main`* in *flash*). A secret read that went through a prompt is logged as *you approved* and doesn't flash; one that didn't is *auto-approved* and does.
+- **Watch-only.** The hook runs async and prints nothing, so it can't approve, deny or slow down anything. It forwards approval prompts, and tool calls only when they touch or print a secret; ordinary calls stop in the hook.
+- **Secrets stay out of Flash.** The hook judges a tool's output (did it print a token, or a keychain value from `security … -w`?) and drops it before anything is written. Commands and messages are redacted (`[REDACTED github-token]`) before they reach the inbox, `Flash.log` or the activity log, and those files are private to you.
+- **What you see:** the activity log says what the agent asked for (*Run `git push origin main`* in *flash*). A secret read that went through a prompt is logged as *you approved* and doesn't flash; one that didn't is *auto-approved* and does. One that **printed** the secret (*· printed keychain value*, *· printed github-token*) always flashes: the value is in the agent's transcript now.
+- **Who, what, why:** each entry names the rule and the item (*keychain ANTHROPIC_API_KEY*, *credentials-file*, *env-secret*), the session (`Claude 63e4ba9a`, or `Claude · Explore` for a subagent), and Flash.log keeps the exact fragment that matched. Matching looks only at what a call runs or opens: a Bash command, a file path, never an agent's prompt text or the content an Edit writes.
+- **Which model, which provider:** Claude's lines name the model and where it ran: *Claude · Opus 5.5 · Anthropic API* (or Bedrock, Vertex, Foundry, *proxy host*). A subagent's call names the subagent's own model. The model is read from Claude Code's transcript, whose format isn't a promise, so a missing one is logged as *model unknown*, never guessed.
+- **Writing about a secret isn't reading one:** text that's only written (a file's new content, a commit message, a PR body, a heredoc fed to `cat >`, comments) is skipped by the rules; the same command run through `$`, `tools.Bash` or a shell still counts.
+- **Keychain dialogs, attributed:** when a keychain prompt appears, Flash reads the process table (libproc, no extra permissions) and logs *asked by `security find-generic-password -s X -w` ← zsh ← claude*, plus the project and branch it ran in, the provider for Claude, and how long the dialog stayed up. For a git credential prompt it names the host and the git command: *for github.com during git push origin main · in flash (main)*. A GUI app asking for its own item has no command-line asker; Flash says so rather than guess, and says when several tools could be the asker.
 - Off switch: **Settings → Detection → Agent alerts**.
 
 ## Use
@@ -91,13 +96,14 @@ Add this to `~/.claude/settings.json` (merge into an existing `"hooks"` block):
 | Left-click icon | Status, touches today, recent activity, style switcher, tests |
 | Right-click icon | Plain menu |
 | Settings (⌘,) | **Alerts** (style, 13 colours, reminders) · **Detection** (prompts, ssh, activity folders) · **About** |
-| Logs | `~/Library/Logs/Flash.log`, also live in the app: **⌥-click** the menu-bar shield, or `open flash://logs` |
+| Logs | `~/Library/Logs/Flash.log`, also live in the app: **⌥-click** the menu-bar shield, or `open flash://logs`. The **Audit** view (`open "flash://logs?view=audit"`) shows only secret access, keychain dialogs, the hook inbox and ssh; `?tag=agent` picks one engine. Scrolling back pauses Follow (macOS 15+) |
 
 ## Build
 
 ```sh
 make run       # build + run in the foreground, logs to the terminal
 make install   # → /Applications/Flash.app
+make test      # redaction and hook-payload tests (FlashCore)
 make selftest  # with Flash running: triggers every detection path, pass/fail per step
 ```
 
