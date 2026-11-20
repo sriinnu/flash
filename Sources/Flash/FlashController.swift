@@ -249,6 +249,12 @@ final class FlashController: ObservableObject {
                     return TargetLockView(frame: frame, gradient: gradient, glowColor: glow)
                 case .heartbeat:
                     return HeartbeatView(frame: frame, gradient: gradient, glowColor: glow)
+                case .shockwave:
+                    return ShockwaveView(frame: frame, gradient: gradient, glowColor: glow)
+                case .supernova:
+                    return SupernovaView(frame: frame, gradient: gradient, glowColor: glow)
+                case .lightning:
+                    return LightningView(frame: frame, gradient: gradient, glowColor: glow)
                 case .aurora:
                     return AuroraView(frame: frame, gradient: gradient)
                 case .sonar:
