@@ -27,7 +27,7 @@ enum ProcessSnapshot {
         return table
     }
 
-    /// Fills path, args and the environment keys Flash reads.
+    /// Fills path, working directory, args and the environment keys Flash reads.
     static func fill(_ record: inout ProcessRecord) {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, record.pid]
         var size = 0
@@ -35,6 +35,11 @@ enum ProcessSnapshot {
         var bytes = [UInt8](repeating: 0, count: size)
         guard sysctl(&mib, 3, &bytes, &size, nil, 0) == 0,
               let parsed = ProcessRecord.parseProcArgs(Array(bytes.prefix(size))) else { return }
+        var vnode = proc_vnodepathinfo()
+        let vsize = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        if proc_pidinfo(record.pid, PROC_PIDVNODEPATHINFO, 0, &vnode, vsize) == vsize {
+            record.cwd = withUnsafeBytes(of: vnode.pvi_cdir.vip_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        }
         record.path = parsed.path
         record.args = parsed.args
         record.environment = parsed.environment

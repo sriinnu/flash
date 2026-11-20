@@ -83,11 +83,17 @@ enum AgentHookRouter {
             let why = match.map { m in call.keychainItem.map { "\(m.rule) \($0)" } ?? m.rule } ?? "output"
             let details = [why, yours ? "you approved" : "auto-approved"] + (printed.map { ["printed \($0)"] } ?? [])
             let who = agentName(payload)
-            Log.write("[agent] secret access · \(details.joined(separator: " · ")) · \(who) \(session.prefix(8)) in \(repo ?? "?")"
+            // "Claude · Opus 5.5 · Anthropic API": the model is best effort
+            // (read from the transcript), so "model unknown" when it's missing.
+            let identity = AgentIdentity(payload[AgentIdentity.payloadKey])
+            let through = identity?.label.map { (identity?.model == nil ? "model unknown · " : "") + $0 }
+            Log.write("[agent] secret access · \(details.joined(separator: " · ")) · \(who)"
+                      + (through.map { " · \($0)" } ?? "") + " \(session.prefix(8)) in \(repo ?? "?")"
                       + " — \(call.summary)" + (match.map { " — matched «\($0.fragment)»" } ?? ""))
             ActivityLog.shared.record(ActivityEvent(
                 kind: .secretAccess, repo: repo, ref: nil,
-                summary: call.summary + " · " + details.joined(separator: " · "),
+                summary: ([call.summary] + details + (identity?.model.map { [AgentIdentity.displayName($0)] } ?? []))
+                    .joined(separator: " · "),
                 sha: nil, date: Date(), actor: .agent(who)))
             // You already saw a prompted read; a printed secret is in the
             // agent's transcript now, so that one flashes either way.

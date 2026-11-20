@@ -9,6 +9,8 @@ public struct ProcessRecord: Equatable {
     public let name: String
     public let started: Date
     public var path = ""
+    /// Working directory (libproc), when readable.
+    public var cwd = ""
     public var args: [String] = []
     /// Only the keys `KeychainAttribution` reads (CLAUDECODE, TERM_PROGRAM, …).
     public var environment: [String: String] = [:]
@@ -25,7 +27,8 @@ public struct ProcessRecord: Equatable {
     }
 
     /// Environment keys worth keeping from KERN_PROCARGS2.
-    public static let environmentKeys: Set<String> = ["CLAUDECODE", "CODEX_SANDBOX", "TERM_PROGRAM", "__CFBundleIdentifier"]
+    public static let environmentKeys = Set(["CLAUDECODE", "CODEX_SANDBOX", "TERM_PROGRAM", "__CFBundleIdentifier"])
+        .union(AgentIdentity.providerKeys)
 
     /// KERN_PROCARGS2 layout: argc (Int32), exec path, NUL padding, argc
     /// NUL-terminated args, then the environment the same way.
@@ -82,6 +85,15 @@ public struct KeychainRequester: Equatable {
     public let app: String?
     /// The keychain item, for `security find-*-password`.
     public let item: String?
+    /// The checkout it ran in: "flash", and its branch.
+    public var project: String?
+    public var branch: String?
+    /// For a git credential helper: the host it's being asked for, and the
+    /// git command that needed it ("git push origin main").
+    public var credentialHost: String?
+    public var gitCommand: String?
+    /// "Anthropic API", "Bedrock", …, for a Claude agent.
+    public var provider: String?
     /// Other clients that started in the same window: when it's not 0, the
     /// pick is the youngest, not a certainty, and the log says so.
     public var others = 0
@@ -90,6 +102,19 @@ public struct KeychainRequester: Equatable {
     public var label: String {
         ([command + " (pid \(pid))"] + chain.prefix(4)).joined(separator: " ← ")
             + (others > 0 ? " (\(others) other candidate\(others == 1 ? "" : "s"))" : "")
+    }
+
+    /// "for github.com during git push origin main · in flash (main) · Anthropic API"
+    public var context: String {
+        var parts: [String] = []
+        if let credentialHost {
+            parts.append("for \(credentialHost)" + (gitCommand.map { " during \($0)" } ?? ""))
+        } else if let gitCommand {
+            parts.append("during \(gitCommand)")
+        }
+        if let project { parts.append("in \(project)" + (branch.map { " (\($0))" } ?? "")) }
+        if let provider { parts.append(provider) }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -148,8 +173,25 @@ public enum KeychainAttribution {
         return base.allSatisfy({ $0.isNumber || $0 == "." }) && record.path.contains("/claude/") ? "claude" : base
     }
 
-    /// Describe `pid`; its record and ancestors should carry args/env.
-    public static func describe(_ pid: Int32, in table: [Int32: ProcessRecord]) -> KeychainRequester? {
+    /// "push origin main" from git's argv, past its global options (-c k=v,
+    /// -C dir, --git-dir=…); nil for git's own plumbing (credential,
+    /// remote-https), which isn't what you ran.
+    static func gitSubcommand(_ args: [String]) -> [String]? {
+        var index = 1
+        let takesValue: Set<String> = ["-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"]
+        while index < args.count, args[index].hasPrefix("-") {
+            index += takesValue.contains(args[index]) ? 2 : 1
+        }
+        guard index < args.count else { return nil }
+        let sub = args[index]
+        if sub.hasPrefix("credential") || sub.hasPrefix("remote-") { return nil }
+        return Array(args[index..<min(args.count, index + 4)])
+    }
+
+    /// Describe `pid`; its record and ancestors should carry args/env/cwd.
+    /// `repo` finds the checkout around a directory (a seam for tests).
+    public static func describe(_ pid: Int32, in table: [Int32: ProcessRecord],
+                                repo: (String) -> GitRepo? = { GitRepo.containing($0) }) -> KeychainRequester? {
         guard let record = table[pid] else { return nil }
         let chain = ancestors(of: pid, in: table)
         let command = record.args.isEmpty ? record.name : record.args.enumerated()
@@ -184,7 +226,43 @@ public enum KeychainAttribution {
             }.first
 
         let item = ToolCall(["tool_name": "Bash", "tool_input": ["command": command]]).keychainItem
-        return KeychainRequester(pid: pid, command: command, chain: chain.map(displayName),
-                                 agent: agent, app: app, item: item)
+        var requester = KeychainRequester(pid: pid, command: command, chain: chain.map(displayName),
+                                          agent: agent, app: app, item: item)
+
+        // Project: the nearest working directory that's inside a checkout.
+        let lineage = [record] + chain
+        var checkout: GitRepo?
+        for process in lineage where !process.cwd.isEmpty {
+            if let found = repo(process.cwd) { checkout = found; break }
+        }
+        requester.project = checkout?.name
+        requester.branch = checkout?.branch
+
+        // A credential helper gets the host on stdin; its parents say it
+        // in their arguments: git-remote-https <remote> <url>, git push <remote>.
+        if record.name.hasPrefix("git-credential") || record.name == "git" {
+            if let remote = chain.first(where: { $0.name.hasPrefix("git-remote-") }), remote.args.count >= 3 {
+                requester.credentialHost = GitRepo.host(of: remote.args[2])
+            }
+            if let words = chain.lazy.filter({ $0.name == "git" }).compactMap({ gitSubcommand($0.args) }).first {
+                requester.gitCommand = Redact.text((["git"] + words.map(GitRepo.stripCredentials)).joined(separator: " "))
+                if requester.credentialHost == nil {
+                    let named = words.dropFirst().first { !$0.hasPrefix("-") }
+                    let remotes = checkout?.remotes ?? [:]
+                    let url = named.flatMap { remotes[$0] ?? ($0.contains("://") || $0.contains("@") ? $0 : nil) } ?? remotes["origin"]
+                    requester.credentialHost = url.flatMap(GitRepo.host(of:))
+                }
+            }
+        }
+
+        if agent == "Claude" {
+            let env = lineage.reduce(into: [String: String]()) { merged, process in
+                for (key, value) in process.environment where AgentIdentity.providerKeys.contains(key) && merged[key] == nil {
+                    merged[key] = value
+                }
+            }
+            requester.provider = AgentIdentity.claudeProvider(env)
+        }
+        return requester
     }
 }

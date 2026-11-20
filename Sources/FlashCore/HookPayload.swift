@@ -69,7 +69,7 @@ public struct OutputVerdict: Equatable {
         bytes = output.utf8.count
         kinds = Redact.kinds(in: output)
         let command = (payload["tool_input"] as? [String: Any])?["command"] as? String ?? ""
-        keychainValue = Self.printsKeychainValue(command) && Self.looksLikeValue(output)
+        keychainValue = Self.printsKeychainValue(DataMask.shell(command)) && Self.looksLikeValue(output)
     }
 
     /// From a sanitized payload's `flash_output` (in the app).

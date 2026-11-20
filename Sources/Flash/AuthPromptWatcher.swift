@@ -90,15 +90,17 @@ final class AuthPromptWatcher {
             // process table; read it off the main queue (a sysctl per parent).
             probeQueue.async {
                 let requester = ProcessSnapshot.keychainRequester()
-                let who = requester.map { "asked by \($0.label)" } ?? "asker not found (an app, not a command-line tool)"
+                let who = requester.map { r in "asked by \(r.label)" + (r.context.isEmpty ? "" : " — \(r.context)") }
+                    ?? "asker not found (an app, not a command-line tool)"
                 Log.write("[auth] \(owner) dialog up — \(label) — \(who) — window \(shape)")
                 Task { @MainActor in
                     ActivityLog.shared.record(ActivityEvent(
                         kind: .prompt,
-                        repo: nil,
-                        ref: nil,
+                        repo: requester?.project,
+                        ref: requester?.branch,
                         summary: requester.map { r in
-                            label + " · " + (r.item.map { "item \($0) · " } ?? "") + r.command
+                            [label, r.item.map { "item \($0)" } ?? r.credentialHost.map { "for \($0)" }, r.gitCommand ?? r.command, r.provider]
+                                .compactMap { $0 }.joined(separator: " · ")
                         } ?? label,
                         sha: nil,
                         date: Date(),

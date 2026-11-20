@@ -45,6 +45,16 @@ public struct ToolCall {
         }
     }
 
+    /// The targets with written-only text blanked out (DataMask): what the
+    /// secret rules scan. Same lengths, so match ranges fit `targets`.
+    var scanTargets: [String] {
+        switch name {
+        case "Bash": return targets.map(DataMask.shell)
+        case "REPL": return targets.map(DataMask.script)
+        default: return targets
+        }
+    }
+
     static let targetKeys: Set<String> = [
         "command", "cmd", "code", "script", "path", "paths", "file", "files",
         "file_path", "filePath", "filename", "args", "argv", "directory", "dir",
@@ -85,8 +95,9 @@ public struct ToolCall {
     /// The earliest secret match across this call's targets, if any.
     public var secretMatch: SecretMatch? {
         var best: SecretMatch?
-        for (index, target) in targets.enumerated() {
-            let ns = target as NSString
+        let originals = targets
+        for (index, target) in scanTargets.enumerated() {
+            let ns = originals[index] as NSString
             for rule in Self.rules {
                 guard let match = rule.regex.firstMatch(in: target, range: NSRange(location: 0, length: ns.length))
                 else { continue }
@@ -104,7 +115,7 @@ public struct ToolCall {
     /// The keychain item a `security find-*-password` names: its service
     /// (-s), else label (-l), else account (-a).
     public var keychainItem: String? {
-        guard let command = targets.first,
+        guard let command = scanTargets.first,
               let call = command.range(of: #"\bsecurity\s+find-(?:generic|internet)-password\b(?:"[^"]*"|'[^']*'|[^|;&\n)"'])*"#,
                                        options: .regularExpression)
         else { return nil }
