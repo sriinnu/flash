@@ -35,6 +35,7 @@ struct SettingsView: View {
     @AppStorage("flashColor") private var flashColor: FlashColor = .amber
     @AppStorage("alertStyle") private var alertStyle: AlertStyle = .comet
     @AppStorage("successRipple") private var successRipple: Bool = true
+    @AppStorage("holdUntilAnswered") private var holdUntilAnswered: Bool = true
     @AppStorage("reminderInterval") private var reminderInterval: ReminderInterval = .off
     @AppStorage("flashCount") private var flashCount: Int = 4
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -233,6 +234,8 @@ struct SettingsView: View {
                         Task { @MainActor in FlashController.shared.testSuccess() }
                     }
                     .controlSize(.small)
+                    Toggle("Keep a light on until answered", isOn: $holdUntilAnswered)
+                        .help("A thin steady border stays on the screen edges while a key touch, a dialog or an agent is waiting on you")
                     Toggle("Success ripple", isOn: $successRipple)
                         .labelsHidden()
                         .toggleStyle(.switch)

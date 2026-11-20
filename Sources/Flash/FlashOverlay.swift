@@ -49,6 +49,17 @@ final class OverlayWindow: NSWindow {
             animator().alphaValue = 0
         }
     }
+
+    /// For effects that never end on their own (the hold rail): fade, then
+    /// order out.
+    func retire(duration: TimeInterval = 0.4) {
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = duration
+            animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            self?.orderOut(nil)
+        })
+    }
 }
 
 /// Base for anything an `OverlayWindow` can play. Subclasses build their
@@ -325,6 +336,106 @@ final class ClassicFlashView: OverlayView {
         anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
         runTransaction({ layer.add(anim, forKey: "flashPulse") }, completion: completion)
+    }
+}
+
+// MARK: - Hold rail
+
+/// A thin, steady border that stays lit while something waits on you, like
+/// the key's own LED. No motion: it's there for the glance you take later,
+/// not to grab you (the alert before it did that). A dark casing under the
+/// colour keeps it visible on a white wallpaper.
+final class HoldRailView: OverlayView {
+
+    static let width: CGFloat = 5
+    private let casing = CAShapeLayer()
+    private let glowLine = CAShapeLayer()
+    private var rail = CAGradientLayer()
+    private var railMask = CAShapeLayer()
+
+    init(frame: NSRect, gradient: [NSColor]) {
+        super.init(frame: frame)
+        casing.fillColor = nil
+        casing.strokeColor = NSColor.black.withAlphaComponent(0.45).cgColor
+        casing.lineWidth = Self.width + 4
+        layer?.addSublayer(casing)
+
+        glowLine.fillColor = nil
+        glowLine.strokeColor = gradient[0].cgColor
+        glowLine.lineWidth = Self.width
+        glow(glowLine, gradient[0], radius: 12)
+        glowLine.shadowOpacity = 0.7
+        layer?.addSublayer(glowLine)
+
+        rail.type = .conic
+        rail.colors = [gradient[0], gradient[1], gradient[0]].map(\.cgColor)
+        rail.locations = [0, 0.5, 1]
+        rail.mask = railMask
+        layer?.addSublayer(rail)
+        layer?.opacity = 0
+        updateGeometry()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        updateGeometry()
+    }
+
+    private func updateGeometry() {
+        let loop = BorderGeometry.loop(in: bounds)
+        for shape in [casing, glowLine, railMask] {
+            shape.frame = bounds
+            shape.path = loop
+        }
+        rail.frame = bounds
+        railMask.path = loop.copy(strokingWithWidth: Self.width, lineCap: .round, lineJoin: .round, miterLimit: 10)
+    }
+
+    /// Fades in and holds; never completes. The window is retired when
+    /// the prompt is answered.
+    override func play(completion: @escaping () -> Void) {
+        guard let layer else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.6
+        layer.opacity = 1
+        layer.add(fade, forKey: "in")
+    }
+}
+
+// MARK: - Steady fade (Reduce Motion)
+
+/// What Reduce Motion gets instead of an animation: the full border fades
+/// in, holds, fades out. Nothing moves and nothing blinks.
+final class SteadyFadeView: OverlayView {
+
+    private var rail = CAGradientLayer()
+    private let glowLine = CAShapeLayer()
+
+    init(frame: NSRect, gradient: [NSColor], glowColor: NSColor) {
+        super.init(frame: frame)
+        glowLine.frame = bounds
+        glowLine.path = BorderGeometry.loop(in: bounds)
+        glowLine.fillColor = nil
+        glowLine.strokeColor = glowColor.cgColor
+        glowLine.lineWidth = BorderGeometry.lineWidth
+        glow(glowLine, glowColor, radius: 36)
+        layer?.addSublayer(glowLine)
+        (rail, _) = BorderGeometry.gradientRail(in: bounds, colors: gradient)
+        layer?.addSublayer(rail)
+        layer?.opacity = 0
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func play(completion: @escaping () -> Void) {
+        guard let layer else { return completion() }
+        runTransaction({
+            layer.add(keyframes("opacity", [(0, 0), (0.5, 1), (2.0, 1), (2.6, 0)], over: 2.6, eased: true), forKey: "steady")
+        }, completion: completion)
     }
 }
 

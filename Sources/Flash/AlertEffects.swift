@@ -77,7 +77,7 @@ final class MarqueeView: OverlayView {
 // MARK: - Target lock
 
 /// Four corner brackets slam in from past the screen edge, lock, blink
-/// twice, then grow along the edges until they close into one border and
+/// once, then grow along the edges until they close into one border and
 /// flare. Reads as "acquired" — sharp, mechanical, over in under two seconds.
 final class TargetLockView: OverlayView {
 
@@ -124,7 +124,9 @@ final class TargetLockView: OverlayView {
                 ], over: d, eased: true),
                 keyframes("opacity", [
                     (0, 0), (0.12, 1),
-                    (0.42, 1), (0.47, 0.2), (0.52, 1), (0.60, 0.2), (blinkEnd, 1),
+                    // One blink, not two: two dips 0.13s apart was ~7 Hz,
+                    // over the 3-flashes-a-second photosensitivity line.
+                    (0.42, 1), (0.55, 0.2), (blinkEnd, 1),
                     (growEnd + 0.15, 1), (d, 0),
                 ], over: d),
             ], over: d), forKey: "rig")

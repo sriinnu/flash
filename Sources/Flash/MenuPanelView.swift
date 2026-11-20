@@ -85,9 +85,16 @@ struct MenuPanelView: View {
         case .idle:
             return Status(title: "Watching", subtitle: "Waiting for your next auth prompt",
                           symbol: "bolt.shield.fill", color: .accentColor)
+        case .alerting(.agentWaiting):
+            return Status(title: "An agent is waiting", subtitle: "It needs your approval",
+                          symbol: "hand.raised.fill", color: .purple)
         case .alerting:
             return Status(title: "Touch your key", subtitle: "Something is waiting on you",
                           symbol: "hand.tap.fill", color: .orange)
+        case .secretRead:
+            return Status(title: "An agent read a secret",
+                          subtitle: flash.unseenSecrets == 1 ? "See Activity for what and where" : "\(flash.unseenSecrets) reads — see Activity",
+                          symbol: "eye.trianglebadge.exclamationmark.fill", color: .red)
         case .success:
             return Status(title: "Touch confirmed", subtitle: "You're through",
                           symbol: "checkmark.seal.fill", color: .green)
@@ -103,7 +110,7 @@ struct MenuPanelView: View {
                 Image(systemName: s.symbol)
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(s.color)
-                    .symbolEffect(.pulse, isActive: watch.isRunning && flash.iconState == .alerting)
+                    .symbolEffect(.pulse, isActive: watch.isRunning && flash.iconState.isAlerting)
             }
             .frame(width: 40, height: 40)
 

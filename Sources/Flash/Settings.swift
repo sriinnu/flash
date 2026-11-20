@@ -203,6 +203,12 @@ final class FlashSettings {
         defaults.object(forKey: "successRipple") as? Bool ?? true
     }
 
+    /// Keep a thin steady light on the edges until a prompt is answered.
+    /// Defaults on: it's the LED you'd otherwise miss.
+    var holdUntilAnswered: Bool {
+        defaults.object(forKey: "holdUntilAnswered") as? Bool ?? true
+    }
+
     var flashCount: Int {
         let n = defaults.integer(forKey: "flashCount")
         return n == 0 ? 4 : n
