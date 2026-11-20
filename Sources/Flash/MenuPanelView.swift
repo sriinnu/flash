@@ -170,7 +170,9 @@ struct MenuPanelView: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 6) {
+            // Five to a row: the panel is narrow, and one row of every style
+            // runs off its right edge.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 5), spacing: 6) {
                 ForEach(AlertStyle.allCases) { style in
                     Button {
                         alertStyle = style
