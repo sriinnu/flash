@@ -341,19 +341,28 @@ final class ClassicFlashView: OverlayView {
 
 // MARK: - Hold rail
 
-/// A thin, steady border that stays lit while something waits on you, like
-/// the key's own LED. No motion: it's there for the glance you take later,
-/// not to grab you (the alert before it did that). A dark casing under the
-/// colour keeps it visible on a white wallpaper.
+/// A thin border that stays lit while something waits on you, like the
+/// key's own LED, but alive: it breathes (one slow cycle every 3s, far
+/// under any flash threshold), its gradient turns, and a soft glint
+/// travels round every few seconds. Peripheral vision notices slow motion
+/// that a flat line it has already seen fades into. Under Reduce Motion
+/// it holds still. A dark casing under the colour keeps it visible on a
+/// white wallpaper.
 final class HoldRailView: OverlayView {
 
     static let width: CGFloat = 5
+    private let calm: Bool
+    private let gradientColors: [NSColor]
     private let casing = CAShapeLayer()
     private let glowLine = CAShapeLayer()
-    private var rail = CAGradientLayer()
-    private var railMask = CAShapeLayer()
+    private let body = CALayer()          // masked to the rail; holds the turning gradient
+    private let railMask = CAShapeLayer()
+    private let wheel = CAGradientLayer()
+    private let glint = CAShapeLayer()
 
-    init(frame: NSRect, gradient: [NSColor]) {
+    init(frame: NSRect, gradient: [NSColor], calm: Bool) {
+        self.calm = calm
+        self.gradientColors = gradient
         super.init(frame: frame)
         casing.fillColor = nil
         casing.strokeColor = NSColor.black.withAlphaComponent(0.45).cgColor
@@ -367,11 +376,26 @@ final class HoldRailView: OverlayView {
         glowLine.shadowOpacity = 0.7
         layer?.addSublayer(glowLine)
 
-        rail.type = .conic
-        rail.colors = [gradient[0], gradient[1], gradient[0]].map(\.cgColor)
-        rail.locations = [0, 0.5, 1]
-        rail.mask = railMask
-        layer?.addSublayer(rail)
+        // The wheel is a square bigger than the screen's diagonal, so it can
+        // turn under the mask without its corners ever showing.
+        wheel.type = .conic
+        wheel.colors = [gradient[0], gradient[1], gradient[0]].map(\.cgColor)
+        wheel.locations = [0, 0.5, 1]
+        wheel.startPoint = CGPoint(x: 0.5, y: 0.5)
+        wheel.endPoint = CGPoint(x: 1, y: 0.5)
+        body.addSublayer(wheel)
+        body.mask = railMask
+        layer?.addSublayer(body)
+
+        glint.fillColor = nil
+        glint.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        glint.lineWidth = Self.width
+        glint.lineCap = .round
+        glow(glint, gradient[1], radius: 10)
+        glint.strokeStart = 0
+        glint.strokeEnd = 0
+        layer?.addSublayer(glint)
+
         layer?.opacity = 0
         updateGeometry()
     }
@@ -385,16 +409,19 @@ final class HoldRailView: OverlayView {
 
     private func updateGeometry() {
         let loop = BorderGeometry.loop(in: bounds)
-        for shape in [casing, glowLine, railMask] {
+        for shape in [casing, glowLine, glint] {
             shape.frame = bounds
             shape.path = loop
         }
-        rail.frame = bounds
+        body.frame = bounds
+        railMask.frame = bounds
         railMask.path = loop.copy(strokingWithWidth: Self.width, lineCap: .round, lineJoin: .round, miterLimit: 10)
+        let side = hypot(bounds.width, bounds.height)
+        wheel.frame = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
     }
 
-    /// Fades in and holds; never completes. The window is retired when
-    /// the prompt is answered.
+    /// Fades in and keeps going; never completes. The window is retired
+    /// when the prompt is answered.
     override func play(completion: @escaping () -> Void) {
         guard let layer else { return }
         let fade = CABasicAnimation(keyPath: "opacity")
@@ -403,6 +430,31 @@ final class HoldRailView: OverlayView {
         fade.duration = 0.6
         layer.opacity = 1
         layer.add(fade, forKey: "in")
+        guard !calm else { return }
+
+        // Breathe: 1 → 0.45 → 1 over 3s.
+        let breathe = keyframes("opacity", [(0, 1), (1.5, 0.45), (3.0, 1)], over: 3.0, eased: true)
+        breathe.repeatCount = .infinity
+        body.add(breathe, forKey: "breathe")
+        glowLine.add(breathe, forKey: "breathe")
+
+        // The gradient turns once every 9s.
+        let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+        turn.fromValue = 0
+        turn.toValue = Double.pi * 2
+        turn.duration = 9
+        turn.repeatCount = .infinity
+        wheel.add(turn, forKey: "turn")
+
+        // A short glint travels the whole loop in 3.5s, then rests 3s.
+        let travel = 3.5, cycle = 6.5, length = 0.05
+        let glide = group([
+            keyframes("strokeStart", [(0, 0), (travel, 1 - length), (cycle, 1 - length)], over: cycle),
+            keyframes("strokeEnd", [(0, length), (travel, 1), (cycle, 1)], over: cycle),
+            keyframes("opacity", [(0, 0), (0.3, 1), (travel - 0.3, 1), (travel, 0), (cycle, 0)], over: cycle),
+        ], over: cycle)
+        glide.repeatCount = .infinity
+        glint.add(glide, forKey: "glint")
     }
 }
 

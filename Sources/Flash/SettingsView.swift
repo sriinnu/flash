@@ -125,7 +125,8 @@ struct SettingsView: View {
 
     private var styleCard: some View {
         Card(title: "Alert style") {
-            HStack(spacing: 8) {
+            // Four to a row: eight tiles in one row squeeze the labels.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(AlertStyle.allCases) { style in
                     Button {
                         alertStyle = style
@@ -564,6 +565,9 @@ extension AlertStyle {
         case .marquee: return "circle.dashed"
         case .targetLock: return "scope"
         case .heartbeat: return "waveform.path.ecg"
+        case .aurora: return "sparkles"
+        case .sonar: return "dot.radiowaves.left.and.right"
+        case .breathe: return "wind"
         case .classic: return "bolt.fill"
         }
     }
@@ -574,6 +578,9 @@ extension AlertStyle {
         case .marquee: return "Marquee"
         case .targetLock: return "Target"
         case .heartbeat: return "Heartbeat"
+        case .aurora: return "Aurora"
+        case .sonar: return "Sonar"
+        case .breathe: return "Breathe"
         case .classic: return "Classic"
         }
     }

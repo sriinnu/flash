@@ -227,6 +227,174 @@ final class HeartbeatView: OverlayView {
     }
 }
 
+// MARK: - Aurora
+
+/// A wide, soft glow rolls in from the edges in the kind's two colours,
+/// swells twice like a slow tide, and ebbs away. No hard edges, no blink:
+/// the calm one that still fills your peripheral vision.
+final class AuroraView: OverlayView {
+
+    private let gradient: [NSColor]
+    private let duration = 3.6
+
+    init(frame: NSRect, gradient: [NSColor]) {
+        self.gradient = gradient
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func play(completion: @escaping () -> Void) {
+        guard let root = layer else { return completion() }
+        let d = duration
+        let loop = BorderGeometry.loop(in: bounds)
+
+        runTransaction({
+            // Two veils, one per colour, swelling out of phase so the hue
+            // drifts between them.
+            for (i, color) in gradient.prefix(2).enumerated() {
+                let veil = CAShapeLayer()
+                veil.frame = bounds
+                veil.path = loop
+                veil.fillColor = nil
+                veil.strokeColor = color.withAlphaComponent(0.55).cgColor
+                veil.lineWidth = 40
+                veil.opacity = 0
+                glow(veil, color, radius: 70)
+                root.addSublayer(veil)
+                let lag = Double(i) * 0.45
+                veil.add(group([
+                    keyframes("opacity", [
+                        (0, 0), (0.7 + lag, 1), (1.5 + lag, 0.55), (2.3 + lag, 1), (d, 0),
+                    ], over: d, eased: true),
+                    keyframes("lineWidth", [
+                        (0, 10), (0.7 + lag, 70), (1.5 + lag, 35), (2.3 + lag, 90), (d, 20),
+                    ], over: d, eased: true),
+                ], over: d), forKey: "tide")
+            }
+
+            // A crisp rail rides on top so the edge itself still reads.
+            let (rail, _) = BorderGeometry.gradientRail(in: bounds, colors: gradient)
+            rail.opacity = 0
+            root.addSublayer(rail)
+            rail.add(keyframes("opacity", [(0, 0), (0.6, 0.9), (d - 0.8, 0.9), (d, 0)], over: d, eased: true), forKey: "rail")
+        }, completion: completion)
+    }
+}
+
+// MARK: - Sonar
+
+/// Rings leave the middle of the screen and travel out to the edges, three
+/// pings in a row, and the border lights where each one lands. Your eyes
+/// are dragged outward from wherever you were looking.
+final class SonarView: OverlayView {
+
+    private let gradient: [NSColor]
+    private let glowColor: NSColor
+    private let pings = 3
+    private let gap = 0.55
+    private let travel = 1.1
+
+    init(frame: NSRect, gradient: [NSColor], glowColor: NSColor) {
+        self.gradient = gradient
+        self.glowColor = glowColor
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func play(completion: @escaping () -> Void) {
+        guard let root = layer else { return completion() }
+        let total = Double(pings - 1) * gap + travel + 0.6
+        let loop = BorderGeometry.loop(in: bounds)
+
+        runTransaction({
+            for i in 0..<pings {
+                let start = Double(i) * gap
+                let ring = CAShapeLayer()
+                ring.frame = bounds   // anchor at the centre: scale grows from the middle
+                ring.path = loop
+                ring.fillColor = nil
+                ring.strokeColor = gradient[i % 2].cgColor
+                ring.lineWidth = 6
+                ring.opacity = 0
+                glow(ring, gradient[i % 2], radius: 18)
+                root.addSublayer(ring)
+                ring.add(group([
+                    keyframes("transform.scale", [
+                        (0, 0.08), (start, 0.08), (start + travel, 1), (total, 1),
+                    ], over: total),
+                    keyframes("opacity", [
+                        (0, 0), (start, 0), (start + 0.1, 0.9), (start + travel, 0.8), (start + travel + 0.25, 0), (total, 0),
+                    ], over: total),
+                ], over: total), forKey: "ping")
+            }
+
+            // The border flares as each ping lands.
+            let edge = strokeLayer(path: loop, color: glowColor, width: BorderGeometry.lineWidth)
+            edge.strokeEnd = 1
+            glow(edge, glowColor, radius: 36)
+            root.addSublayer(edge)
+            let (rail, _) = BorderGeometry.gradientRail(in: bounds, colors: gradient)
+            rail.opacity = 0
+            root.addSublayer(rail)
+            var frames: [(Double, Double)] = [(0, 0)]
+            for i in 0..<pings {
+                let land = Double(i) * gap + travel
+                frames += [(land - 0.05, 0.3), (land + 0.05, 1), (land + 0.35, 0.35)]
+            }
+            frames += [(total, 0)]
+            let flare = keyframes("opacity", frames, over: total, eased: true)
+            edge.add(flare, forKey: "flare")
+            rail.add(flare, forKey: "flare")
+        }, completion: completion)
+    }
+}
+
+// MARK: - Breathe
+
+/// The whole border fades up and down, slow and even, three breaths. The
+/// gentlest style that still repeats, under one cycle a second.
+final class BreatheView: OverlayView {
+
+    private let gradient: [NSColor]
+    private let glowColor: NSColor
+    private let breaths = 3
+    private let breath = 1.3
+
+    init(frame: NSRect, gradient: [NSColor], glowColor: NSColor) {
+        self.gradient = gradient
+        self.glowColor = glowColor
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func play(completion: @escaping () -> Void) {
+        guard let root = layer else { return completion() }
+        let b = breath
+
+        runTransaction({
+            let body = CALayer()
+            body.frame = bounds
+            body.opacity = 0
+            root.addSublayer(body)
+            let halo = strokeLayer(path: BorderGeometry.loop(in: bounds), color: glowColor, width: BorderGeometry.lineWidth)
+            halo.strokeEnd = 1
+            halo.opacity = 1
+            glow(halo, glowColor, radius: 44)
+            body.addSublayer(halo)
+            let (rail, _) = BorderGeometry.gradientRail(in: bounds, colors: gradient)
+            body.addSublayer(rail)
+
+            body.add(keyframes("opacity", [(0, 0), (b * 0.5, 1), (b, 0.08)], over: b, eased: true)
+                .repeating(breaths), forKey: "breathe")
+            halo.add(keyframes("shadowRadius", [(0, 20), (b * 0.5, 60), (b, 20)], over: b, eased: true)
+                .repeating(breaths), forKey: "bloom")
+        }, completion: completion)
+    }
+}
+
 private extension CAAnimation {
     func repeating(_ count: Int) -> Self {
         repeatCount = Float(max(1, count))

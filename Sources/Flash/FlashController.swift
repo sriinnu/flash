@@ -40,6 +40,10 @@ final class FlashController: ObservableObject {
     /// the part the Titan's LED does and a 3s animation doesn't.
     private var railWindows: [OverlayWindow] = []
     private var railKind: AlertKind?
+    /// The screen frames the rail was drawn for. macOS posts "screen
+    /// parameters changed" for more than display changes (the Dock, menu
+    /// bar, Spaces), so a rebuild checks this before tearing the rail down.
+    private var railScreens: [CGRect] = []
 
     /// Alert and celebration windows tracked apart so a touch can cut the
     /// alert short without also killing the ripple it's about to trigger.
@@ -245,6 +249,12 @@ final class FlashController: ObservableObject {
                     return TargetLockView(frame: frame, gradient: gradient, glowColor: glow)
                 case .heartbeat:
                     return HeartbeatView(frame: frame, gradient: gradient, glowColor: glow)
+                case .aurora:
+                    return AuroraView(frame: frame, gradient: gradient)
+                case .sonar:
+                    return SonarView(frame: frame, gradient: gradient, glowColor: glow)
+                case .breathe:
+                    return BreatheView(frame: frame, gradient: gradient, glowColor: glow)
                 case .classic:
                     return ClassicFlashView(frame: frame, gradient: gradient, glowColor: glow, flashes: count)
                 }
@@ -302,19 +312,24 @@ final class FlashController: ObservableObject {
         }
         let preset = FlashSettings.shared.color(for: want)
         let gradient = preset == .random ? FlashColor.randomVividGradient() : preset.gradient
+        let calm = reduceMotion
         for screen in NSScreen.screens {
-            let window = OverlayWindow(screen: screen) { frame in HoldRailView(frame: frame, gradient: gradient) }
+            let window = OverlayWindow(screen: screen) { frame in HoldRailView(frame: frame, gradient: gradient, calm: calm) }
             // Under the alerts, so a reminder pulse draws over it.
             window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue)
             railWindows.append(window)
             window.play {}
         }
+        railScreens = NSScreen.screens.map(\.frame)
         Log.write("[controller] hold rail on for \(want.rawValue) until it's answered")
     }
 
     /// A display came or went: redraw the rail on the screens there are now.
     fileprivate func rebuildRail() {
         guard railKind != nil else { return }
+        let screens = NSScreen.screens.map(\.frame)
+        guard screens != railScreens else { return }
+        Log.write("[controller] displays changed: redrawing the hold rail on \(screens.count) screen(s)")
         railWindows.forEach { $0.retire() }
         railWindows.removeAll()
         railKind = nil
