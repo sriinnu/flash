@@ -91,6 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Popover follows the SwiftUI view's size as its content changes.
         hosting.sizingOptions = .preferredContentSize
         popover.contentViewController = hosting
+        // The panel says what was read; closing it counts as seen.
+        NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover, queue: .main) { _ in
+            MainActor.assumeIsolated { FlashController.shared.markSecretsSeen() }
+        }
         popover.behavior = .transient
         popover.animates = true
 
@@ -192,26 +196,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController?.view.window?.makeKey()
     }
 
+    private var currentSymbol = "bolt.shield.fill"
+
     private func updateStatus(running: Bool, state: FlashController.IconState) {
         quickToggleItem.title = running ? "Pause Watching" : "Resume Watching"
         // Paused reads as a dimmed shield — visible at a glance, no popover needed.
         statusItem.button?.appearsDisabled = !running
 
         guard running else {
+            if currentSymbol != "bolt.shield.fill" {
+                currentSymbol = "bolt.shield.fill"
+                statusItem.button?.image = NSImage(systemSymbolName: currentSymbol, accessibilityDescription: "Flash")
+            }
             statusItem.button?.toolTip = "Flash — paused"
             statusItem.button?.contentTintColor = nil
             return
         }
+        // The symbol says what kind, so it still reads with colour off
+        // (or for colour-blind eyes): shield, raised hand, eye.
+        let symbol: String
         switch state {
         case .idle:
+            symbol = "bolt.shield.fill"
             statusItem.button?.toolTip = "Flash — watching"
             statusItem.button?.contentTintColor = nil
+        case .alerting(.agentWaiting):
+            symbol = "hand.raised.fill"
+            statusItem.button?.toolTip = "Flash — an agent is waiting on you"
+            statusItem.button?.contentTintColor = .systemPurple
         case .alerting:
-            statusItem.button?.toolTip = "Flash — your key wants a touch"
+            symbol = "bolt.shield.fill"
+            statusItem.button?.toolTip = "Flash — your key or a password prompt is waiting"
             statusItem.button?.contentTintColor = .systemOrange
         case .success:
+            symbol = "bolt.shield.fill"
             statusItem.button?.toolTip = "Flash — touch confirmed"
             statusItem.button?.contentTintColor = .systemGreen
+        case .secretRead:
+            symbol = "eye.trianglebadge.exclamationmark.fill"
+            statusItem.button?.toolTip = "Flash — an agent read a secret; open Activity to see it"
+            statusItem.button?.contentTintColor = .systemRed
+        }
+        if symbol != currentSymbol {
+            currentSymbol = symbol
+            statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Flash")
         }
     }
 
@@ -254,6 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Same hand-owned window approach as Settings, for the same reasons.
     private func openActivity() {
+        FlashController.shared.markSecretsSeen()
         if activityWindow == nil {
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: ActivityView.windowSize),

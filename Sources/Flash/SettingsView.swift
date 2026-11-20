@@ -35,6 +35,7 @@ struct SettingsView: View {
     @AppStorage("flashColor") private var flashColor: FlashColor = .amber
     @AppStorage("alertStyle") private var alertStyle: AlertStyle = .comet
     @AppStorage("successRipple") private var successRipple: Bool = true
+    @AppStorage("holdUntilAnswered") private var holdUntilAnswered: Bool = true
     @AppStorage("reminderInterval") private var reminderInterval: ReminderInterval = .off
     @AppStorage("flashCount") private var flashCount: Int = 4
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -124,7 +125,8 @@ struct SettingsView: View {
 
     private var styleCard: some View {
         Card(title: "Alert style") {
-            HStack(spacing: 8) {
+            // Four to a row: eight tiles in one row squeeze the labels.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(AlertStyle.allCases) { style in
                     Button {
                         alertStyle = style
@@ -233,6 +235,8 @@ struct SettingsView: View {
                         Task { @MainActor in FlashController.shared.testSuccess() }
                     }
                     .controlSize(.small)
+                    Toggle("Keep a light on until answered", isOn: $holdUntilAnswered)
+                        .help("A thin steady border stays on the screen edges while a key touch, a dialog or an agent is waiting on you")
                     Toggle("Success ripple", isOn: $successRipple)
                         .labelsHidden()
                         .toggleStyle(.switch)
@@ -561,6 +565,11 @@ extension AlertStyle {
         case .marquee: return "circle.dashed"
         case .targetLock: return "scope"
         case .heartbeat: return "waveform.path.ecg"
+        case .shockwave: return "cursorarrow.rays"
+        case .supernova: return "sun.max.fill"
+        case .lightning: return "bolt.horizontal.fill"
+        case .aurora: return "sparkles"
+        case .breathe: return "wind"
         case .classic: return "bolt.fill"
         }
     }
@@ -571,6 +580,11 @@ extension AlertStyle {
         case .marquee: return "Marquee"
         case .targetLock: return "Target"
         case .heartbeat: return "Heartbeat"
+        case .shockwave: return "Shockwave"
+        case .supernova: return "Supernova"
+        case .lightning: return "Lightning"
+        case .aurora: return "Aurora"
+        case .breathe: return "Breathe"
         case .classic: return "Classic"
         }
     }

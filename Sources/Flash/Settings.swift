@@ -92,7 +92,7 @@ enum FlashColor: String, CaseIterable, Identifiable {
 /// `.classic` — subtle first, loud second — so a missed comet still ends in
 /// the full-border shout if a reminder interval is set.
 enum AlertStyle: String, CaseIterable, Identifiable {
-    case comet, marquee, targetLock, heartbeat, classic
+    case comet, marquee, targetLock, heartbeat, shockwave, supernova, lightning, aurora, breathe, classic
 
     var id: String { rawValue }
     var label: String {
@@ -101,6 +101,11 @@ enum AlertStyle: String, CaseIterable, Identifiable {
         case .marquee: return "Marquee"
         case .targetLock: return "Target lock"
         case .heartbeat: return "Heartbeat"
+        case .shockwave: return "Shockwave"
+        case .supernova: return "Supernova"
+        case .lightning: return "Lightning"
+        case .aurora: return "Aurora"
+        case .breathe: return "Breathe"
         case .classic: return "Classic flash"
         }
     }
@@ -112,6 +117,11 @@ enum AlertStyle: String, CaseIterable, Identifiable {
         case .marquee: return "Marquee lights chase round the whole border."
         case .targetLock: return "Corner brackets slam in, lock, and trace the border."
         case .heartbeat: return "The border thumps inward — calm, rhythmic."
+        case .shockwave: return "Blasts out from your mouse pointer, where you're already looking, and ignites the edges."
+        case .supernova: return "The corners gather light, then sparks burst off every edge."
+        case .lightning: return "Electric arcs crackle round the border."
+        case .aurora: return "Soft coloured light pools in from the screen edges and drifts round."
+        case .breathe: return "The border fades up and down, slow and even."
         case .classic: return "The full border pulses on and off."
         }
     }
@@ -201,6 +211,12 @@ final class FlashSettings {
     /// Defaults on — `integer(forKey:)` can't tell "unset" from "false".
     var successRipple: Bool {
         defaults.object(forKey: "successRipple") as? Bool ?? true
+    }
+
+    /// Keep a thin steady light on the edges until a prompt is answered.
+    /// Defaults on: it's the LED you'd otherwise miss.
+    var holdUntilAnswered: Bool {
+        defaults.object(forKey: "holdUntilAnswered") as? Bool ?? true
     }
 
     var flashCount: Int {

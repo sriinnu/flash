@@ -49,6 +49,17 @@ final class OverlayWindow: NSWindow {
             animator().alphaValue = 0
         }
     }
+
+    /// For effects that never end on their own (the hold rail): fade, then
+    /// order out.
+    func retire(duration: TimeInterval = 0.4) {
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = duration
+            animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            self?.orderOut(nil)
+        })
+    }
 }
 
 /// Base for anything an `OverlayWindow` can play. Subclasses build their
@@ -325,6 +336,158 @@ final class ClassicFlashView: OverlayView {
         anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
         runTransaction({ layer.add(anim, forKey: "flashPulse") }, completion: completion)
+    }
+}
+
+// MARK: - Hold rail
+
+/// A thin border that stays lit while something waits on you, like the
+/// key's own LED, but alive: it breathes (one slow cycle every 3s, far
+/// under any flash threshold), its gradient turns, and a soft glint
+/// travels round every few seconds. Peripheral vision notices slow motion
+/// that a flat line it has already seen fades into. Under Reduce Motion
+/// it holds still. A dark casing under the colour keeps it visible on a
+/// white wallpaper.
+final class HoldRailView: OverlayView {
+
+    static let width: CGFloat = 5
+    private let calm: Bool
+    private let gradientColors: [NSColor]
+    private let casing = CAShapeLayer()
+    private let glowLine = CAShapeLayer()
+    private let body = CALayer()          // masked to the rail; holds the turning gradient
+    private let railMask = CAShapeLayer()
+    private let wheel = CAGradientLayer()
+    private let glint = CAShapeLayer()
+
+    init(frame: NSRect, gradient: [NSColor], calm: Bool) {
+        self.calm = calm
+        self.gradientColors = gradient
+        super.init(frame: frame)
+        casing.fillColor = nil
+        casing.strokeColor = NSColor.black.withAlphaComponent(0.45).cgColor
+        casing.lineWidth = Self.width + 4
+        layer?.addSublayer(casing)
+
+        glowLine.fillColor = nil
+        glowLine.strokeColor = gradient[0].cgColor
+        glowLine.lineWidth = Self.width
+        glow(glowLine, gradient[0], radius: 12)
+        glowLine.shadowOpacity = 0.7
+        layer?.addSublayer(glowLine)
+
+        // The wheel is a square bigger than the screen's diagonal, so it can
+        // turn under the mask without its corners ever showing.
+        wheel.type = .conic
+        wheel.colors = [gradient[0], gradient[1], gradient[0]].map(\.cgColor)
+        wheel.locations = [0, 0.5, 1]
+        wheel.startPoint = CGPoint(x: 0.5, y: 0.5)
+        wheel.endPoint = CGPoint(x: 1, y: 0.5)
+        body.addSublayer(wheel)
+        body.mask = railMask
+        layer?.addSublayer(body)
+
+        glint.fillColor = nil
+        glint.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        glint.lineWidth = Self.width
+        glint.lineCap = .round
+        glow(glint, gradient[1], radius: 10)
+        glint.strokeStart = 0
+        glint.strokeEnd = 0
+        layer?.addSublayer(glint)
+
+        layer?.opacity = 0
+        updateGeometry()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        updateGeometry()
+    }
+
+    private func updateGeometry() {
+        let loop = BorderGeometry.loop(in: bounds)
+        for shape in [casing, glowLine, glint] {
+            shape.frame = bounds
+            shape.path = loop
+        }
+        body.frame = bounds
+        railMask.frame = bounds
+        railMask.path = loop.copy(strokingWithWidth: Self.width, lineCap: .round, lineJoin: .round, miterLimit: 10)
+        let side = hypot(bounds.width, bounds.height)
+        wheel.frame = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+    }
+
+    /// Fades in and keeps going; never completes. The window is retired
+    /// when the prompt is answered.
+    override func play(completion: @escaping () -> Void) {
+        guard let layer else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.6
+        layer.opacity = 1
+        layer.add(fade, forKey: "in")
+        guard !calm else { return }
+
+        // Breathe: 1 → 0.45 → 1 over 3s.
+        let breathe = keyframes("opacity", [(0, 1), (1.5, 0.45), (3.0, 1)], over: 3.0, eased: true)
+        breathe.repeatCount = .infinity
+        body.add(breathe, forKey: "breathe")
+        glowLine.add(breathe, forKey: "breathe")
+
+        // The gradient turns once every 9s.
+        let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+        turn.fromValue = 0
+        turn.toValue = Double.pi * 2
+        turn.duration = 9
+        turn.repeatCount = .infinity
+        wheel.add(turn, forKey: "turn")
+
+        // A short glint travels the whole loop in 3.5s, then rests 3s.
+        let travel = 3.5, cycle = 6.5, length = 0.05
+        let glide = group([
+            keyframes("strokeStart", [(0, 0), (travel, 1 - length), (cycle, 1 - length)], over: cycle),
+            keyframes("strokeEnd", [(0, length), (travel, 1), (cycle, 1)], over: cycle),
+            keyframes("opacity", [(0, 0), (0.3, 1), (travel - 0.3, 1), (travel, 0), (cycle, 0)], over: cycle),
+        ], over: cycle)
+        glide.repeatCount = .infinity
+        glint.add(glide, forKey: "glint")
+    }
+}
+
+// MARK: - Steady fade (Reduce Motion)
+
+/// What Reduce Motion gets instead of an animation: the full border fades
+/// in, holds, fades out. Nothing moves and nothing blinks.
+final class SteadyFadeView: OverlayView {
+
+    private var rail = CAGradientLayer()
+    private let glowLine = CAShapeLayer()
+
+    init(frame: NSRect, gradient: [NSColor], glowColor: NSColor) {
+        super.init(frame: frame)
+        glowLine.frame = bounds
+        glowLine.path = BorderGeometry.loop(in: bounds)
+        glowLine.fillColor = nil
+        glowLine.strokeColor = glowColor.cgColor
+        glowLine.lineWidth = BorderGeometry.lineWidth
+        glow(glowLine, glowColor, radius: 36)
+        layer?.addSublayer(glowLine)
+        (rail, _) = BorderGeometry.gradientRail(in: bounds, colors: gradient)
+        layer?.addSublayer(rail)
+        layer?.opacity = 0
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func play(completion: @escaping () -> Void) {
+        guard let layer else { return completion() }
+        runTransaction({
+            layer.add(keyframes("opacity", [(0, 0), (0.5, 1), (2.0, 1), (2.6, 0)], over: 2.6, eased: true), forKey: "steady")
+        }, completion: completion)
     }
 }
 
