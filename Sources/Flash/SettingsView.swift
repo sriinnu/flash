@@ -569,7 +569,6 @@ extension AlertStyle {
         case .supernova: return "sun.max.fill"
         case .lightning: return "bolt.horizontal.fill"
         case .aurora: return "sparkles"
-        case .sonar: return "dot.radiowaves.left.and.right"
         case .breathe: return "wind"
         case .classic: return "bolt.fill"
         }
@@ -585,7 +584,6 @@ extension AlertStyle {
         case .supernova: return "Supernova"
         case .lightning: return "Lightning"
         case .aurora: return "Aurora"
-        case .sonar: return "Sonar"
         case .breathe: return "Breathe"
         case .classic: return "Classic"
         }

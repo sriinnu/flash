@@ -92,7 +92,7 @@ enum FlashColor: String, CaseIterable, Identifiable {
 /// `.classic` — subtle first, loud second — so a missed comet still ends in
 /// the full-border shout if a reminder interval is set.
 enum AlertStyle: String, CaseIterable, Identifiable {
-    case comet, marquee, targetLock, heartbeat, shockwave, supernova, lightning, aurora, sonar, breathe, classic
+    case comet, marquee, targetLock, heartbeat, shockwave, supernova, lightning, aurora, breathe, classic
 
     var id: String { rawValue }
     var label: String {
@@ -105,7 +105,6 @@ enum AlertStyle: String, CaseIterable, Identifiable {
         case .supernova: return "Supernova"
         case .lightning: return "Lightning"
         case .aurora: return "Aurora"
-        case .sonar: return "Sonar"
         case .breathe: return "Breathe"
         case .classic: return "Classic flash"
         }
@@ -121,8 +120,7 @@ enum AlertStyle: String, CaseIterable, Identifiable {
         case .shockwave: return "Blasts out from your mouse pointer, where you're already looking, and ignites the edges."
         case .supernova: return "The corners gather light, then sparks burst off every edge."
         case .lightning: return "Electric arcs crackle round the border."
-        case .aurora: return "A soft glow rolls in from the edges, swells twice and ebbs."
-        case .sonar: return "Rings ping out from the middle and light the edges where they land."
+        case .aurora: return "Soft coloured light pools in from the screen edges and drifts round."
         case .breathe: return "The border fades up and down, slow and even."
         case .classic: return "The full border pulses on and off."
         }

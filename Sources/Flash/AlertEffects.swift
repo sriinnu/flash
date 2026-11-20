@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 // Alternative alert effects. Each one moves differently on purpose: if two
 // effects share a motion signature, the setting is just a color picker with
@@ -229,13 +230,14 @@ final class HeartbeatView: OverlayView {
 
 // MARK: - Aurora
 
-/// A wide, soft glow rolls in from the edges in the kind's two colours,
-/// swells twice like a slow tide, and ebbs away. No hard edges, no blink:
-/// the calm one that still fills your peripheral vision.
+/// Light pools in from the very edge of the screen: soft blooms in the
+/// kind's colours drift round the frame at different speeds, with no hard
+/// line anywhere. The strokes sit on the screen edge, half off it, so what
+/// you see is mostly their glow spilling inward.
 final class AuroraView: OverlayView {
 
     private let gradient: [NSColor]
-    private let duration = 3.6
+    private let duration = 3.8
 
     init(frame: NSRect, gradient: [NSColor]) {
         self.gradient = gradient
@@ -247,106 +249,64 @@ final class AuroraView: OverlayView {
     override func play(completion: @escaping () -> Void) {
         guard let root = layer else { return completion() }
         let d = duration
-        let loop = BorderGeometry.loop(in: bounds)
+        let edge = CGPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), cornerWidth: 14, cornerHeight: 14, transform: nil)
+        // The loop twice over, so a segment can travel past the end without
+        // wrapping: fractions on it are halved.
+        let twice = CGMutablePath()
+        twice.addPath(edge)
+        twice.addPath(edge)
+
+        let light = { (c: NSColor) in c.blended(withFraction: 0.3, of: .white) ?? c }
+        let blooms: [(NSColor, Double, Double, Double)] = [
+            // colour, where it starts, how far it drifts, its length
+            (gradient[0], 0.00, 0.55, 0.32),
+            (gradient[1], 0.25, 0.40, 0.28),
+            (light(gradient[0]), 0.50, 0.65, 0.30),
+            (light(gradient[1]), 0.75, 0.45, 0.26),
+        ]
+
+        // A real Gaussian blur, not a shadow: shadows keep the stroke's hard
+        // edge, blur dissolves it into light.
+        layerUsesCoreImageFilters = true
+        let sky = CALayer()
+        sky.frame = bounds
+        sky.filters = [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 38])].compactMap { $0 }
+        sky.opacity = 0
+        root.addSublayer(sky)
 
         runTransaction({
-            // Two veils, one per colour, swelling out of phase so the hue
-            // drifts between them.
-            for (i, color) in gradient.prefix(2).enumerated() {
-                let veil = CAShapeLayer()
-                veil.frame = bounds
-                veil.path = loop
-                veil.fillColor = nil
-                veil.strokeColor = color.withAlphaComponent(0.55).cgColor
-                veil.lineWidth = 40
-                veil.opacity = 0
-                glow(veil, color, radius: 70)
-                root.addSublayer(veil)
-                let lag = Double(i) * 0.45
-                veil.add(group([
-                    keyframes("opacity", [
-                        (0, 0), (0.7 + lag, 1), (1.5 + lag, 0.55), (2.3 + lag, 1), (d, 0),
-                    ], over: d, eased: true),
-                    keyframes("lineWidth", [
-                        (0, 10), (0.7 + lag, 70), (1.5 + lag, 35), (2.3 + lag, 90), (d, 20),
-                    ], over: d, eased: true),
-                ], over: d), forKey: "tide")
+            sky.add(keyframes("opacity", [(0, 0), (0.8, 1), (d - 1.0, 1), (d, 0)], over: d, eased: true), forKey: "in")
+
+            // A faint even wash so no edge is ever dark.
+            let wash = CAShapeLayer()
+            wash.frame = bounds
+            wash.path = edge
+            wash.fillColor = nil
+            wash.strokeColor = gradient[0].withAlphaComponent(0.55).cgColor
+            wash.lineWidth = 40
+            sky.addSublayer(wash)
+
+            for (color, start, drift, length) in blooms {
+                let bloom = CAShapeLayer()
+                bloom.frame = bounds
+                bloom.path = twice
+                bloom.fillColor = nil
+                bloom.strokeColor = color.cgColor
+                bloom.lineWidth = 90
+                bloom.lineCap = .round
+                sky.addSublayer(bloom)
+                bloom.add(group([
+                    keyframes("strokeStart", [(0, start / 2), (d, (start + drift) / 2)], over: d),
+                    keyframes("strokeEnd", [(0, (start + length) / 2), (d, (start + drift + length) / 2)], over: d),
+                    keyframes("lineWidth", [(0, 60), (d * 0.35, 120), (d * 0.7, 80), (d, 110)], over: d, eased: true),
+                ], over: d), forKey: "drift")
             }
 
-            // A crisp rail rides on top so the edge itself still reads.
+            // A thin crisp line on the edge itself, so it still reads as a border.
             let (rail, _) = BorderGeometry.gradientRail(in: bounds, colors: gradient)
             rail.opacity = 0
             root.addSublayer(rail)
-            rail.add(keyframes("opacity", [(0, 0), (0.6, 0.9), (d - 0.8, 0.9), (d, 0)], over: d, eased: true), forKey: "rail")
-        }, completion: completion)
-    }
-}
-
-// MARK: - Sonar
-
-/// Rings leave the middle of the screen and travel out to the edges, three
-/// pings in a row, and the border lights where each one lands. Your eyes
-/// are dragged outward from wherever you were looking.
-final class SonarView: OverlayView {
-
-    private let gradient: [NSColor]
-    private let glowColor: NSColor
-    private let pings = 3
-    private let gap = 0.55
-    private let travel = 1.1
-
-    init(frame: NSRect, gradient: [NSColor], glowColor: NSColor) {
-        self.gradient = gradient
-        self.glowColor = glowColor
-        super.init(frame: frame)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func play(completion: @escaping () -> Void) {
-        guard let root = layer else { return completion() }
-        let total = Double(pings - 1) * gap + travel + 0.6
-        let loop = BorderGeometry.loop(in: bounds)
-
-        runTransaction({
-            for i in 0..<pings {
-                let start = Double(i) * gap
-                let ring = CAShapeLayer()
-                ring.frame = bounds   // anchor at the centre: scale grows from the middle
-                ring.path = loop
-                ring.fillColor = nil
-                ring.strokeColor = gradient[i % 2].cgColor
-                ring.lineWidth = 6
-                ring.opacity = 0
-                glow(ring, gradient[i % 2], radius: 18)
-                root.addSublayer(ring)
-                ring.add(group([
-                    keyframes("transform.scale", [
-                        (0, 0.08), (start, 0.08), (start + travel, 1), (total, 1),
-                    ], over: total),
-                    keyframes("opacity", [
-                        (0, 0), (start, 0), (start + 0.1, 0.9), (start + travel, 0.8), (start + travel + 0.25, 0), (total, 0),
-                    ], over: total),
-                ], over: total), forKey: "ping")
-            }
-
-            // The border flares as each ping lands.
-            let edge = strokeLayer(path: loop, color: glowColor, width: BorderGeometry.lineWidth)
-            edge.strokeEnd = 1
-            glow(edge, glowColor, radius: 36)
-            root.addSublayer(edge)
-            let (rail, _) = BorderGeometry.gradientRail(in: bounds, colors: gradient)
-            rail.opacity = 0
-            root.addSublayer(rail)
-            var frames: [(Double, Double)] = [(0, 0)]
-            for i in 0..<pings {
-                let land = Double(i) * gap + travel
-                frames += [(land - 0.05, 0.3), (land + 0.05, 1), (land + 0.35, 0.35)]
-            }
-            frames += [(total, 0)]
-            let flare = keyframes("opacity", frames, over: total, eased: true)
-            edge.add(flare, forKey: "flare")
-            rail.add(flare, forKey: "flare")
+            rail.add(keyframes("opacity", [(0, 0), (0.8, 0.55), (d - 1.0, 0.55), (d, 0)], over: d, eased: true), forKey: "rail")
         }, completion: completion)
     }
 }
@@ -397,14 +357,15 @@ final class BreatheView: OverlayView {
 
 // MARK: - Shockwave
 
-/// Starts where your eyes already are: a bright point at the mouse pointer,
-/// then two shockwaves blast out from it, and the border ignites as each one
-/// reaches the edge. On a screen without the pointer it starts mid-screen.
+/// Starts where your eyes already are: a hot point at the mouse pointer,
+/// then two shockwaves blast out from it (a white front with a wide
+/// coloured wake), and the border ignites as each one reaches the edge.
+/// On a screen without the pointer it starts mid-screen.
 final class ShockwaveView: OverlayView {
 
     private let gradient: [NSColor]
     private let glowColor: NSColor
-    private let travel = 1.15
+    private let travel = 1.2
     private let gap = 0.45
 
     init(frame: NSRect, gradient: [NSColor], glowColor: NSColor) {
@@ -422,48 +383,87 @@ final class ShockwaveView: OverlayView {
         return CGPoint(x: mouse.x - screenFrame.minX, y: mouse.y - screenFrame.minY)
     }
 
+    /// The ring's radius over its flight: fast out of the gate, easing as it
+    /// spreads, like a real blast front.
+    private static func radius(at f: Double, reach: CGFloat) -> CGFloat {
+        reach * CGFloat(1 - pow(1 - f, 2.2))
+    }
+
+    /// A path animation for a circle growing from the pointer. Animating the
+    /// path, not the scale, keeps the band the same width the whole way.
+    private func flight(from p: CGPoint, reach: CGFloat, start: Double, total: Double) -> CAKeyframeAnimation {
+        let samples = 30
+        var values: [CGPath] = []
+        var times: [NSNumber] = []
+        let tiny = CGPath(ellipseIn: CGRect(x: p.x - 1, y: p.y - 1, width: 2, height: 2), transform: nil)
+        values.append(tiny); times.append(0)
+        values.append(tiny); times.append(NSNumber(value: start / total))
+        for i in 1...samples {
+            let f = Double(i) / Double(samples)
+            let r = Self.radius(at: f, reach: reach)
+            values.append(CGPath(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2), transform: nil))
+            times.append(NSNumber(value: (start + travel * f) / total))
+        }
+        let anim = CAKeyframeAnimation(keyPath: "path")
+        anim.values = values
+        anim.keyTimes = times
+        anim.duration = total
+        return anim
+    }
+
     override func play(completion: @escaping () -> Void) {
         guard let root = layer else { return completion() }
         let p = origin()
-        // Far enough to sweep every corner.
-        let radius = [CGPoint(x: 0, y: 0), CGPoint(x: bounds.maxX, y: 0),
-                      CGPoint(x: 0, y: bounds.maxY), CGPoint(x: bounds.maxX, y: bounds.maxY)]
+        let reach = [CGPoint(x: 0, y: 0), CGPoint(x: bounds.maxX, y: 0),
+                     CGPoint(x: 0, y: bounds.maxY), CGPoint(x: bounds.maxX, y: bounds.maxY)]
             .map { hypot($0.x - p.x, $0.y - p.y) }.max() ?? 1
+        // When a ring first touches an edge: invert the easing curve.
         let nearest = min(p.x, p.y, bounds.maxX - p.x, bounds.maxY - p.y)
-        let hit = travel * Double(nearest / radius)   // when a ring meets the nearest edge
+        let hit = travel * (1 - pow(1 - Double(nearest / reach), 1 / 2.2))
         let charge = 0.35
         let total = charge + gap + travel + 0.9
 
         runTransaction({
-            // The charge: a hot point at the pointer that swells and pops.
+            // The charge: a glowing point that swells at the pointer and pops.
             let dot = CAShapeLayer()
-            let dr: CGFloat = 26
+            let dr: CGFloat = 22
             dot.frame = CGRect(x: p.x - dr, y: p.y - dr, width: dr * 2, height: dr * 2)
             dot.path = CGPath(ellipseIn: dot.bounds, transform: nil)
-            dot.fillColor = NSColor.white.cgColor
+            dot.fillColor = glowColor.blended(withFraction: 0.5, of: .white)?.cgColor ?? glowColor.cgColor
             dot.opacity = 0
-            glow(dot, gradient[0], radius: 30)
+            glow(dot, glowColor, radius: 34)
             root.addSublayer(dot)
             dot.add(group([
-                keyframes("opacity", [(0, 0), (charge * 0.6, 1), (charge + 0.15, 0), (total, 0)], over: total),
-                keyframes("transform.scale", [(0, 0.2), (charge, 1.3), (charge + 0.15, 0.4), (total, 0.4)], over: total, eased: true),
+                keyframes("opacity", [(0, 0), (charge * 0.7, 1), (charge + 0.12, 0), (total, 0)], over: total),
+                keyframes("transform.scale", [(0, 0.2), (charge, 1.4), (charge + 0.12, 0.3), (total, 0.3)], over: total, eased: true),
             ], over: total), forKey: "charge")
 
             for i in 0..<2 {
                 let start = charge + Double(i) * gap
-                let ring = CAShapeLayer()
-                ring.frame = CGRect(x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2)
-                ring.path = CGPath(ellipseIn: ring.bounds, transform: nil)
-                ring.fillColor = nil
-                ring.strokeColor = (i == 0 ? NSColor.white : gradient[1]).cgColor
-                ring.lineWidth = i == 0 ? 7 : 4
-                ring.opacity = 0
-                glow(ring, gradient[i % 2], radius: 24)
-                root.addSublayer(ring)
-                ring.add(group([
-                    keyframes("transform.scale", [(0, 0.01), (start, 0.01), (start + travel, 1), (total, 1)], over: total),
-                    keyframes("opacity", [(0, 0), (start, 0), (start + 0.05, 1), (start + travel * 0.7, 0.7), (start + travel, 0), (total, 0)], over: total),
-                ], over: total), forKey: "wave")
+                let color = gradient[i % 2]
+                let fade = keyframes("opacity", [
+                    (0, 0), (start, 0), (start + 0.04, 1), (start + travel * 0.75, 0.75), (start + travel, 0), (total, 0),
+                ], over: total)
+                // Wake: a wide, soft coloured band behind the front.
+                let wake = CAShapeLayer()
+                wake.frame = bounds
+                wake.fillColor = nil
+                wake.strokeColor = color.withAlphaComponent(0.28).cgColor
+                wake.lineWidth = i == 0 ? 70 : 46
+                wake.opacity = 0
+                glow(wake, color, radius: 40)
+                // Front: a hot, thinner leading edge.
+                let front = CAShapeLayer()
+                front.frame = bounds
+                front.fillColor = nil
+                front.strokeColor = (i == 0 ? NSColor.white : color.blended(withFraction: 0.4, of: .white) ?? color).cgColor
+                front.lineWidth = i == 0 ? 9 : 6
+                front.opacity = 0
+                glow(front, color, radius: 22)
+                for ring in [wake, front] {
+                    root.addSublayer(ring)
+                    ring.add(group([flight(from: p, reach: reach, start: start, total: total), fade], over: total), forKey: "wave")
+                }
             }
 
             // The border ignites where the first wave lands, flares again on
@@ -531,16 +531,16 @@ final class SupernovaView: OverlayView {
                            CGPoint(x: inset, y: bounds.maxY - inset), CGPoint(x: bounds.maxX - inset, y: bounds.maxY - inset)]
             for c in corners {
                 let star = CAShapeLayer()
-                let r: CGFloat = 40
+                let r: CGFloat = 16
                 star.frame = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
                 star.path = CGPath(ellipseIn: star.bounds, transform: nil)
-                star.fillColor = NSColor.white.cgColor
+                star.fillColor = (glowColor.blended(withFraction: 0.35, of: .white) ?? glowColor).cgColor
                 star.opacity = 0
-                glow(star, glowColor, radius: 40)
+                glow(star, glowColor, radius: 55)
                 root.addSublayer(star)
                 star.add(group([
                     keyframes("opacity", [(0, 0), (g * 0.8, 1), (g + 0.1, 0), (t, 0)], over: t),
-                    keyframes("transform.scale", [(0, 0.1), (g * 0.8, 1), (g, 0.15), (g + 0.1, 2), (t, 2)], over: t, eased: true),
+                    keyframes("transform.scale", [(0, 0.2), (g * 0.8, 2.2), (g, 0.3), (g + 0.1, 3), (t, 3)], over: t, eased: true),
                 ], over: t), forKey: "gather")
             }
 
@@ -556,16 +556,21 @@ final class SupernovaView: OverlayView {
             e.emitterCells = (gradient.prefix(2) + [NSColor.white]).map { color in
                 let cell = CAEmitterCell()
                 cell.contents = Self.spark
-                cell.birthRate = 220
-                cell.lifetime = 1.6
-                cell.lifetimeRange = 0.6
-                cell.velocity = 260
-                cell.velocityRange = 160
+                // Fewer, bigger, faster embers that burn out quickly read as
+                // a burst; many small slow ones read as dust.
+                // Dense, short-lived embers that die within ~120pt of the
+                // edge: the frame erupts. Long-lived ones drift across the
+                // screen and read as snow.
+                cell.birthRate = 900
+                cell.lifetime = 0.45
+                cell.lifetimeRange = 0.15
+                cell.velocity = 150
+                cell.velocityRange = 70
                 cell.emissionRange = .pi * 2
-                cell.scale = 0.35
-                cell.scaleRange = 0.2
-                cell.scaleSpeed = -0.18
-                cell.alphaSpeed = -0.55
+                cell.scale = 0.55
+                cell.scaleRange = 0.3
+                cell.scaleSpeed = -0.8
+                cell.alphaSpeed = -1.6
                 cell.color = color.cgColor
                 return cell
             }
@@ -588,9 +593,9 @@ final class SupernovaView: OverlayView {
         }, completion: completion)
 
         // Emitters run on birthRate, not animations: open the tap at the
-        // burst, close it 0.45s later so the last sparks die before the end.
+        // burst, close it 0.9s later so the last sparks die before the end.
         DispatchQueue.main.asyncAfter(deadline: .now() + gather) { [weak self] in self?.emitter?.birthRate = 1 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + gather + 0.45) { [weak self] in self?.emitter?.birthRate = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + gather + 0.9) { [weak self] in self?.emitter?.birthRate = 0 }
     }
 }
 
@@ -615,8 +620,8 @@ final class LightningView: OverlayView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// A jagged loop round the screen: the inset rectangle cut into ~28pt
-    /// steps, each nudged off the line by up to `jitter`.
+    /// A jagged loop round the screen: the inset rectangle walked in uneven
+    /// steps that wander off the line by about `jitter`.
     private func arc(jitter: CGFloat) -> CGPath {
         let r = bounds.insetBy(dx: BorderGeometry.inset, dy: BorderGeometry.inset)
         let corners = [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
@@ -626,13 +631,17 @@ final class LightningView: OverlayView {
         for i in 0..<4 {
             let a = corners[i], b = corners[(i + 1) % 4]
             let length = hypot(b.x - a.x, b.y - a.y)
-            let steps = max(2, Int(length / 28))
-            // Perpendicular, pointing into the screen half the time.
             let nx = -(b.y - a.y) / length, ny = (b.x - a.x) / length
-            for s in 1..<steps {
-                let f = CGFloat(s) / CGFloat(steps)
-                let off = CGFloat.random(in: -jitter...jitter)
-                path.addLine(to: CGPoint(x: a.x + (b.x - a.x) * f + nx * off, y: a.y + (b.y - a.y) * f + ny * off))
+            // A random walk, not independent jitter: real bolts wander and
+            // kink, they don't zigzag evenly. Pinned to the line at corners.
+            var f: CGFloat = 0, off: CGFloat = 0
+            while true {
+                f += CGFloat.random(in: 14...40) / length
+                guard f < 1 else { break }
+                off = max(-jitter, min(jitter, off + CGFloat.random(in: -jitter * 0.6...jitter * 0.6)))
+                if Int.random(in: 0..<14) == 0 { off += CGFloat.random(in: -jitter...jitter) }   // a kink
+                let pin = sin(.pi * f)
+                path.addLine(to: CGPoint(x: a.x + (b.x - a.x) * f + nx * off * pin, y: a.y + (b.y - a.y) * f + ny * off * pin))
             }
             path.addLine(to: b)
         }
@@ -648,7 +657,7 @@ final class LightningView: OverlayView {
             // Two arcs, one per colour, crackling out of step, and a thin
             // white core riding inside the first.
             let outer = (0..<shapes).map { _ in arc(jitter: 9) }
-            let inner = (0..<shapes).map { _ in arc(jitter: 14) }
+            let inner = (0..<shapes).map { _ in arc(jitter: 11) }
             let strands: [(NSColor, CGFloat, [CGPath], Bool)] = [
                 (gradient[0], 3.5, outer, true),
                 (gradient[1], 3.5, inner, true),

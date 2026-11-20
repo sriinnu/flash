@@ -257,8 +257,6 @@ final class FlashController: ObservableObject {
                     return LightningView(frame: frame, gradient: gradient, glowColor: glow)
                 case .aurora:
                     return AuroraView(frame: frame, gradient: gradient)
-                case .sonar:
-                    return SonarView(frame: frame, gradient: gradient, glowColor: glow)
                 case .breathe:
                     return BreatheView(frame: frame, gradient: gradient, glowColor: glow)
                 case .classic:
